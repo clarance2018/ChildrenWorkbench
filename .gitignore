@@ -1,0 +1,11 @@
+# 运行数据（数据库、PIN、会话、证书、录音、照片、备份——绝不入库）
+app/data/
+
+# WorkBuddy 工作区内部文件
+.workbuddy/
+
+# 依赖与系统文件
+node_modules/
+Thumbs.db
+.DS_Store
+*.log

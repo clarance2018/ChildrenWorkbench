@@ -1,0 +1,16 @@
+{
+  "name": "儿童作业与习惯工作台",
+  "short_name": "作业工作台",
+  "description": "小学作业与习惯任务的家庭工作台：家长发布，孩子执行，即时反馈",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f6fb",
+  "theme_color": "#3b82f6",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
