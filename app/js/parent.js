@@ -1284,7 +1284,19 @@ const Parent = {
   },
   toggleHabit(id){
     if(!this.guard())return;
-    const h=Store.db.habits.find(x=>x.id===id); h.active=!h.active; Store.save(); route();
+    const h=Store.db.habits.find(x=>x.id===id); h.active=!h.active;
+    if(!h.active){
+      /* 停用：撤掉今天尚未开始的习惯实例（进行中/已完成的不动），否则孩子端仍显示 */
+      const pending=Store.db.tasks.filter(t=>t.habit_id===id && t.date===todayStr() && t.status===STATUS.TODO);
+      pending.forEach(t=>Store.remove("tasks",t.id));
+      if(pending.length) toast(`已停用「${h.name}」，并撤下今天 ${pending.length} 条未开始的任务`);
+      else toast(`已停用「${h.name}」`);
+    }else{
+      /* 启用：若今天本该有此习惯则立即补生成 */
+      Store.generateToday();
+      toast(`已启用「${h.name}」`);
+    }
+    Store.save(); route();
   },
   newHabitModal(){
     if(!this.guard())return;

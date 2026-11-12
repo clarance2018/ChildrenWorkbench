@@ -293,6 +293,11 @@ const Store = {
       }));
       changed=true;
     }
+    /* 清理：今天未开始的习惯实例，若习惯已停用或今天不在重复日，则撤下（防停用后孩子端仍显示） */
+    this.db.tasks.filter(t=>t.habit_id && t.date===today && t.status===STATUS.TODO).forEach(t=>{
+      const h=this.db.habits.find(x=>x.id===t.habit_id);
+      if(!h || !h.active || !(h.weekdays||[]).includes(w)){ this.remove("tasks",t.id); changed=true; }
+    });
     for(const h of this.db.habits){
       if(!h.active || !(h.weekdays||[]).includes(w)) continue;
       if(this.db.tasks.some(t=>t.habit_id===h.id && t.date===today)) continue;
