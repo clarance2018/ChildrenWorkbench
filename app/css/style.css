@@ -500,3 +500,76 @@ body.kiosk-on .task-card{transform:scale(1.01);}
 .kit-row{display:flex;align-items:center;gap:8px;}
 .kit-row label{width:64px;flex:none;font-weight:700;font-size:13.5px;}
 .kit-row input{flex:1;min-width:0;}
+
+/* ========== 标准课表网格（课段 / 节次 × 周一~周日） ========== */
+.tt-tips{background:linear-gradient(135deg,#f0f9ff,#f5f3ff);border:1px solid #dbeafe;}
+.tt-tips h3{font-size:15.5px;margin-bottom:8px;}
+.tt-tips-list{margin:0 0 10px 18px;color:#374151;font-size:13.5px;line-height:1.85;}
+.tt-tips-list b{color:#1e40af;}
+.tt-chips-label{font-size:12.5px;color:var(--text2);margin:6px 0 8px;font-weight:600;}
+.tt-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.tt-chip{background:#fff;border:1px solid #c7d2fe;color:#1e40af;font-size:12.5px;
+  padding:5px 10px;border-radius:999px;}
+.tt-chip:hover{background:var(--blue);border-color:var(--blue);color:#fff;}
+
+.tt-grid-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+.tt-grid-wrap{overflow-x:auto;}
+.tt-grid{width:100%;border-collapse:collapse;min-width:900px;table-layout:fixed;}
+.tt-grid th,.tt-grid td{border:1px solid var(--line);padding:6px 7px;text-align:center;
+  vertical-align:middle;font-size:13px;}
+.tt-grid thead th{background:#f8fafc;font-weight:700;color:#334155;padding:10px 6px;}
+.tt-grid th.tt-period,.tt-grid td.tt-period{width:58px;background:#f8fafc;font-weight:800;color:#334155;}
+.tt-grid th.tt-slot,.tt-grid td.tt-slot{width:92px;background:#fcfdff;}
+.tt-grid tr.tt-period-start td{border-top:2px solid #cbd5e1;}
+.tt-slot input.tt-label{width:100%;text-align:center;font-size:12.5px;font-weight:700;
+  border:1px solid transparent;background:transparent;padding:4px 2px;}
+.tt-slot input.tt-label:hover,.tt-slot input.tt-label:focus{border-color:var(--line);background:#fff;}
+.tt-row-del{background:transparent;color:#cbd5e1;font-size:15px;line-height:1;padding:0 4px;border-radius:4px;}
+.tt-row-del:hover{color:var(--red);background:#fee2e2;}
+.tt-cell{background:#fff;position:relative;}
+.tt-cell.has-subject{background:#f8fbff;}
+.tt-cell input{width:100%;border:1px solid transparent;background:transparent;text-align:center;
+  padding:3px 2px;font-size:13.5px;border-radius:5px;}
+.tt-cell input:hover{border-color:var(--line);background:#fff;}
+.tt-cell input:focus{border-color:var(--blue);background:#fff;outline:2px solid rgba(59,130,246,.18);}
+.tt-cell input.tt-subj{font-weight:700;color:var(--text);}
+.tt-cell input.tt-meta{font-size:11px;color:var(--text2);}
+.tt-cell input::placeholder{color:#cbd5e1;font-weight:400;}
+.tt-hint{margin-top:3px;font-size:10.5px;line-height:1.35;min-height:14px;}
+.tt-hint-ok{color:#15803d;}
+.tt-hint-warn{color:#b45309;}
+.tt-hint-empty{color:#cbd5e1;}
+.tt-hint a{color:#b45309;text-decoration:underline;}
+.tt-ro-subj{font-weight:700;font-size:13.5px;}
+.tt-ro-meta{font-size:11px;color:var(--text2);margin-top:2px;}
+.tt-addrow td{padding:0!important;background:#fcfdff;}
+.tt-add-btn{width:100%;background:transparent;border:1px dashed #cbd5e1;color:var(--text2);
+  border-radius:0;padding:9px;font-size:12.5px;}
+.tt-add-btn:hover{background:#eff6ff;color:var(--blue-d);border-color:var(--blue);}
+.tt-addbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:12px 16px;border-top:1px solid var(--line);background:#fcfdff;}
+.tt-preview{background:linear-gradient(180deg,#fff,#f8fbff);}
+.tt-kit-chip{display:inline-block;background:#fff;border:1px solid #c7d2fe;border-radius:8px;
+  padding:3px 8px;margin:3px 5px 0 0;font-size:12.5px;color:#1e40af;font-weight:600;}
+.tt-missing{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:9px 12px;
+  font-size:13px;color:#92400e;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+@media (max-width:720px){
+  .tt-grid{min-width:820px;}
+  .tt-tips-list{font-size:12.5px;}
+}
+
+/* ========== 孩子端：明日上课顺序（按课段 / 节次） ========== */
+.tt-periods{margin-top:10px;background:rgba(255,255,255,.75);border-radius:10px;padding:8px 10px;}
+.tt-periods-title{font-size:12px;font-weight:700;color:#1e3a8a;margin-bottom:5px;}
+.tt-pr-row{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:13px;
+  color:#374151;border-top:1px dashed #e5e7eb;}
+.tt-pr-row:first-of-type{border-top:none;}
+.tt-pr-label{width:96px;flex:none;color:#64748b;font-size:11.5px;}
+.tt-pr-row b{color:#1f2937;}
+.tt-pr-meta{margin-left:auto;font-size:11px;color:#94a3b8;}
+
+/* ========== 书包清单：课表变化后清单刷新提示 ========== */
+.kit-changed{margin-top:10px;background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;
+  padding:9px 12px;font-size:13px;color:#92400e;line-height:1.6;}
+.kit-hint-sub{margin-top:3px;font-size:12px;color:#3b82f6;}

@@ -153,6 +153,9 @@ function mergeStates(prev, next, scope = "parent") {
     out.child = prev.child;
     out.timetable = prev.timetable;
     out.vacationTimetable = prev.vacationTimetable;
+    /* 标准课表网格（课段/节次 × 7 天）属于家长配置，孩子设备不得回写覆盖 */
+    out.timetableGrid = prev.timetableGrid;
+    out.vacationTimetableGrid = prev.vacationTimetableGrid;
     out.timetableOverrides = prev.timetableOverrides;
     out.periodRules = prev.periodRules;
     out.habits = prev.habits;
@@ -162,6 +165,9 @@ function mergeStates(prev, next, scope = "parent") {
   } else {
     out.timetable = Object.assign({}, prev.timetable || {}, next.timetable || {});
     out.timetableOverrides = Object.assign({}, prev.timetableOverrides || {}, next.timetableOverrides || {});
+    /* 网格按整体取较新的一份：客户端提交时若没带（旧版本）则保留服务端已有网格 */
+    out.timetableGrid = (next.timetableGrid && next.timetableGrid.rows) ? next.timetableGrid : prev.timetableGrid;
+    out.vacationTimetableGrid = (next.vacationTimetableGrid && next.vacationTimetableGrid.rows) ? next.vacationTimetableGrid : prev.vacationTimetableGrid;
     out.settings = Object.assign({}, prev.settings || {}, next.settings || {});
     out.child = Object.assign({}, prev.child || {}, next.child || {});
     /* PIN 只认服务端哈希文件，客户端提交的 parent_pin 一律不采纳 */

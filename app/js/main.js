@@ -154,10 +154,18 @@ function confirmModal(title, text, onOk){
   await Store.init();
   Store.onAuthLost = ()=>{ toast("登录已失效，请重新验证"); setTimeout(()=>location.reload(), 800); };
   // 另一端修改后自动刷新（正在录音/填写表单时不打断）
+  let lastTtAt = (Store.db.settings||{}).timetable_updated_at || "";
   Store.onRemoteSync = ()=>{
     if(document.querySelector("#modal-root .mask")) return;
     if(isEditing()) return;
-    if((location.hash||"").startsWith("#/child/task")) return;
+    const nowAt = (Store.db.settings||{}).timetable_updated_at || "";
+    const ttChanged = nowAt !== lastTtAt;
+    lastTtAt = nowAt;
+    if((location.hash||"").startsWith("#/child/task")){
+      /* 任务页平时不打断计时/录音；但课表一变必须立即重算书包清单 */
+      if(ttChanged && !(Child.rt && Child.rt.recording)) route();
+      return;
+    }
     route();
   };
   window.addEventListener("hashchange", route);

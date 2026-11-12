@@ -19,6 +19,21 @@ const DEFAULT_SUBJECT_KIT = {
 };
 const SLOT_LABEL = { morning:"🌅 早晨", after:"🏫 放学后", night:"🌙 睡前" };
 
+/* 标准课表网格：课段 / 节次 × 星期一~星期日（对齐学校发的《学生课程表》）
+ * rows[i].cells[w-1] = 科目；rows[i].metas[w-1] = 老师 / 教室（选填，不参与书包清单）
+ * timetable[w].subjects 仍是下游唯一权威（MCP、周报、语音、书包清单都读它），
+ * 网格每次编辑即时派生 subjects，避免两套数据各写各的。 */
+const DEFAULT_GRID_ROWS = [
+  { period:"morning",   label:"第1节" }, { period:"morning",   label:"第2节" },
+  { period:"morning",   label:"第3节" }, { period:"morning",   label:"第4节" },
+  { period:"afternoon", label:"第1节" }, { period:"afternoon", label:"第2节" }
+];
+const PERIOD_LABEL = { morning:"上午", afternoon:"下午" };
+/* 小学常见科目全称：家长填课表时给建议，避免「体育与健康」被写成「体育课」导致清单匹配不上 */
+const COMMON_SUBJECTS = ["语文","数学","英语","体育与健康","艺术(美术)","艺术(音乐)",
+  "道德与法治","科学","书法","劳动","综合实践活动","阅读拓展","数学拓展","地方(英语)",
+  "体育","美术","音乐","阅读","写字","班会","信息技术","体育活动"];
+
 function uid(){ return "id_" + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 function todayStr(){ return fmtDate(new Date()); }
 function fmtDate(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
@@ -273,7 +288,8 @@ const Store = {
     const d=this.db; d.schema_version=2;
     d.settings=Object.assign({gradeMode:1,pinyin:true,role:"admin",parent_pin:"1234",sound:true,
       encouragement:true,eyeCare:true,scheduleMode:"daily",goals:null,
-      kitEnabled:true,tt_speak:true,show_timetable_card:true,timetable_updated_at:null}, d.settings||{});
+      kitEnabled:true,tt_speak:true,show_timetable_card:true,timetable_updated_at:null,
+      kitMergeManual:true}, d.settings||{});
     /* 家长改过的科目保留，缺失的补默认；把某科目设为 [] 即可表示"不用带东西" */
     d.settings.subjectKit=Object.assign({}, DEFAULT_SUBJECT_KIT, d.settings.subjectKit||{});
     d.child=d.child||{id:"child_1",name:"小宝"};
@@ -284,6 +300,11 @@ const Store = {
     d.timetable=d.timetable||{1:{subjects:[],notes:""},2:{subjects:[],notes:""},3:{subjects:[],notes:""},
       4:{subjects:[],notes:""},5:{subjects:[],notes:""},6:{subjects:[],notes:""},7:{subjects:[],notes:""}};
     d.timetableOverrides=d.timetableOverrides||{};
+    /* 标准课表网格：旧的一行式课表无损迁移成「课段/节次 × 7 天」 */
+    d.timetableGrid=this.normalizeGrid(d.timetableGrid,d.timetable);
+    d.vacationTimetableGrid=this.normalizeGrid(d.vacationTimetableGrid,d.vacationTimetable);
+    /* REST/MCP 直接写 timetable[w] 时也会反向同步到网格，避免两端各写各的 */
+    this.reconcileGridFromPack();
     d.points=d.points||{total:0,log:[]}; d.points.log=d.points.log||[]; d.streak=d.streak||{days:0,lastDate:null};
     /* 兑换商城 / 错题本 / 假期课表（Batch D/E） */
     d.rewards=d.rewards||[]; d.redemptions=d.redemptions||[]; d.mistakes=d.mistakes||[];
@@ -360,6 +381,156 @@ const Store = {
     this.db.settings.scheduleMode = mode==="vacation" ? "vacation" : "daily";
     this.save();
   },
+
+  /* ---------- 标准课表网格（课段 / 节次 × 7 天） ----------
+   * grid 是家长编辑用的源数据；timetable[w].subjects 是运行时权威，编辑即派生。 */
+  gridDefault(){
+    return { updated_at:null, rows: DEFAULT_GRID_ROWS.map((r,i)=>({
+      id:"gr_"+(i+1), period:r.period, label:r.label,
+      cells:["","","","","","",""], metas:["","","","","","",""]
+    })) };
+  },
+  gridKey(mode){ return mode==="vacation" ? "vacationTimetableGrid" : "timetableGrid"; },
+  packKey(mode){ return mode==="vacation" ? "vacationTimetable" : "timetable"; },
+  grid(mode){
+    const key=this.gridKey(mode||(this.db.settings||{}).scheduleMode);
+    return this.db[key] || this.gridDefault();
+  },
+  gridCellSubject(c){ return String(c==null?"":c).trim(); },
+  periodLabel(p){ return PERIOD_LABEL[p]||PERIOD_LABEL.morning; },
+  /* 旧的一行式课表 → 网格（无损迁移：科目依次落到第 1..N 节） */
+  gridFromPack(pack){
+    const g=this.gridDefault();
+    for(let w=1;w<=7;w++){
+      (((pack||{})[w]||{}).subjects||[]).slice(0,g.rows.length).forEach((s,i)=>{
+        g.rows[i].cells[w-1]=this.gridCellSubject(s);
+      });
+    }
+    return g;
+  },
+  normalizeGrid(g, pack){
+    if(!g || !Array.isArray(g.rows) || !g.rows.length) return this.gridFromPack(pack);
+    const base=this.gridDefault();
+    const rows=g.rows.map((r,i)=>{
+      const cells=(Array.isArray(r.cells)?r.cells:[]).slice(0,7);
+      const metas=(Array.isArray(r.metas)?r.metas:[]).slice(0,7);
+      while(cells.length<7) cells.push("");
+      while(metas.length<7) metas.push("");
+      return { id:r.id||("gr_"+(i+1)), period:r.period==="afternoon"?"afternoon":"morning",
+        label:String(r.label||(base.rows[i]?base.rows[i].label:"第"+(i+1)+"节")),
+        cells:cells.map(x=>this.gridCellSubject(x)), metas:metas.map(x=>String(x==null?"":x).trim()) };
+    });
+    return { updated_at:g.updated_at||null, rows };
+  },
+  /* 外部（REST / MCP / 另一台设备）直接改了 timetable[w].subjects 时，
+   * 若它比网格更新，就把科目反向写回该列（保留老师/教室备注）。 */
+  reconcileGridFromPack(){
+    const apply=(gKey,pKey)=>{
+      const g=this.db[gKey], pack=this.db[pKey];
+      if(!g || !Array.isArray(g.rows) || !pack) return;
+      const gAt=Date.parse(g.updated_at||0)||0;
+      let changed=false;
+      for(let w=1;w<=7;w++){
+        const t=pack[w]; if(!t) continue;
+        const tAt=Date.parse(t.updated_at||0)||0;
+        if(!tAt || tAt<=gAt) continue;
+        const list=(t.subjects||[]).map(s=>this.gridCellSubject(s)).filter(Boolean);
+        while(g.rows.length<list.length){
+          g.rows.push({ id:"gr_"+(g.rows.length+1)+"_ext", period:"afternoon", label:"",
+            cells:["","","","","","",""], metas:["","","","","","",""] });
+        }
+        g.rows.forEach((r,i)=>{ if(!Array.isArray(r.cells)) r.cells=["","","","","","",""]; r.cells[w-1]=list[i]||""; });
+        changed=true;
+      }
+      if(changed){ this.renumberGrid(g); g.updated_at=new Date().toISOString(); }
+    };
+    apply("timetableGrid","timetable");
+    apply("vacationTimetableGrid","vacationTimetable");
+  },
+  /* 某天按节次顺序去重后的科目（书包清单、MCP、语音都用它） */
+  gridSubjects(g,w){
+    const out=[];
+    (g.rows||[]).forEach(r=>{
+      const s=this.gridCellSubject((r.cells||[])[w-1]);
+      if(s && !out.includes(s)) out.push(s);
+    });
+    return out;
+  },
+  /* 孩子端「明天上课顺序」：按课段/节次列出；当天有临时调课时返回 null（调课只有科目没有节次） */
+  timetablePeriods(dateStr){
+    const d=dateStr||tomorrowStr();
+    if((this.db.timetableOverrides||{})[d]) return null;
+    const g=this.grid((this.db.settings||{}).scheduleMode), w=weekdayOf(d);
+    return (g.rows||[]).map(r=>({
+      period:r.period, label:r.label,
+      subject:this.gridCellSubject((r.cells||[])[w-1]),
+      meta:String((r.metas||[])[w-1]||"")
+    })).filter(x=>x.subject);
+  },
+  renumberGrid(g){
+    ["morning","afternoon"].forEach(p=>{
+      let n=0;
+      g.rows.forEach(r=>{ if(r.period===p){ n++; if(!r.label || /^第\d+节$/.test(r.label)) r.label="第"+n+"节"; } });
+    });
+  },
+  syncGridToPack(mode){
+    const m=mode||(this.db.settings||{}).scheduleMode;
+    const g=this.grid(m), pack=this.db[this.packKey(m)];
+    if(!pack) return;
+    for(let w=1;w<=7;w++){
+      if(!pack[w]) pack[w]={subjects:[],notes:""};
+      pack[w].subjects=this.gridSubjects(g,w);
+    }
+    g.updated_at=new Date().toISOString();
+    this.db[this.gridKey(m)]=g;
+    this.db.settings.timetable_updated_at=g.updated_at;
+  },
+  setGridCell(mode,rowIdx,w,patch){
+    const g=this.grid(mode), r=g.rows[rowIdx];
+    if(!r || !(w>=1&&w<=7)) return false;
+    if(patch.subject!=null) r.cells[w-1]=String(patch.subject).trim();
+    if(patch.meta!=null)    r.metas[w-1]=String(patch.meta).trim();
+    if(patch.label!=null)   r.label=String(patch.label).trim();
+    this.db[this.gridKey(mode)]=g;
+    this.syncGridToPack(mode);
+    this.save();
+    return true;
+  },
+  addGridRow(mode,period){
+    const p=period==="afternoon"?"afternoon":"morning", g=this.grid(mode);
+    let last=-1; g.rows.forEach((r,i)=>{ if(r.period===p) last=i; });
+    const at=last<0?g.rows.length:last+1;
+    g.rows.splice(at,0,{ id:"gr_"+Date.now().toString(36)+Math.random().toString(36).slice(2,5),
+      period:p, label:"", cells:["","","","","","",""], metas:["","","","","","",""] });
+    this.renumberGrid(g);
+    this.db[this.gridKey(mode)]=g; this.syncGridToPack(mode); this.save();
+    return at;
+  },
+  removeGridRow(mode,rowIdx){
+    const g=this.grid(mode); if(!g.rows[rowIdx]) return false;
+    g.rows.splice(rowIdx,1); this.renumberGrid(g);
+    this.db[this.gridKey(mode)]=g; this.syncGridToPack(mode); this.save();
+    return true;
+  },
+  /* 兼容 REST/MCP 的「按星期设置科目」：同时把该列同步回网格，保留老师/教室备注 */
+  setWeekdaySubjects(mode,w,subjects,notes){
+    const m=mode||(this.db.settings||{}).scheduleMode;
+    const pack=this.db[this.packKey(m)]; if(!pack) return;
+    if(!pack[w]) pack[w]={subjects:[],notes:""};
+    pack[w].subjects=(subjects||[]).map(s=>this.gridCellSubject(s)).filter(Boolean);
+    if(notes!=null) pack[w].notes=String(notes);
+    const g=this.grid(m), list=pack[w].subjects;
+    while(g.rows.length<list.length){
+      g.rows.push({ id:"gr_"+(g.rows.length+1)+"_"+Date.now().toString(36), period:"afternoon", label:"",
+        cells:["","","","","","",""], metas:["","","","","","",""] });
+    }
+    g.rows.forEach((r,i)=>{ r.cells[w-1]=list[i]||""; });
+    this.renumberGrid(g);
+    g.updated_at=new Date().toISOString();
+    this.db[this.gridKey(m)]=g;
+    this.db.settings.timetable_updated_at=g.updated_at;
+    this.save();
+  },
   habitRemindTime(h){
     /* 假期模式且习惯单独设了假期时间时用假期时间 */
     if((this.db.settings||{}).scheduleMode==="vacation" && h && h.vacation_remind_time) return h.vacation_remind_time;
@@ -371,23 +542,48 @@ const Store = {
   kitEnabled(){
     return (this.db.settings||{}).kitEnabled!==false && Object.keys(this.subjectKitMap()).length>0;
   },
+  /* 科目名 → 已配置物品的科目键。学校课表常写全称（体育与健康 / 艺术(美术) / 数学拓展），
+   * 双向包含匹配让家长照抄课表也能对上清单，不用迁就系统里的短名。 */
+  kitKeyFor(subject){
+    const v=String(subject==null?"":subject).trim(); if(!v) return null;
+    const kit=this.subjectKitMap(), keys=Object.keys(kit);
+    if(kit[v]) return v;
+    return keys.find(k=>v.includes(k)) || keys.find(k=>k.includes(v)) || null;
+  },
+  suggestKit(subject){
+    const key=this.kitKeyFor(subject);
+    if(!key) return { matched:false, key:null, items:[] };
+    return { matched:true, key, items:(this.subjectKitMap()[key]||[]).slice() };
+  },
+  /* 填课表时给家长的标准科目候选：已配物品的优先，再补小学常见全称 */
+  subjectSuggestions(){
+    const out=[], add=x=>{ x=String(x==null?"":x).trim(); if(x && !out.includes(x)) out.push(x); };
+    Object.keys(this.subjectKitMap()).forEach(add);
+    COMMON_SUBJECTS.forEach(add);
+    [this.db.timetableGrid,this.db.vacationTimetableGrid].forEach(g=>
+      ((g||{}).rows||[]).forEach(r=>(r.cells||[]).forEach(add)));
+    Object.values(this.db.timetable||{}).forEach(t=>((t||{}).subjects||[]).forEach(add));
+    Object.values(this.db.vacationTimetable||{}).forEach(t=>((t||{}).subjects||[]).forEach(add));
+    return out;
+  },
   kitForSubjects(subjects){
-    const kit=this.subjectKitMap(), out=[];
+    const out=[];
     const add=x=>{ x=String(x==null?"":x).trim(); if(x && !out.includes(x)) out.push(x); };
     (subjects||[]).forEach(s=>{
-      const v=String(s==null?"":s).trim(); if(!v) return;
-      const key = kit[v] ? v : Object.keys(kit).find(k=>v.includes(k));
-      (key?kit[key]:[]).forEach(add);   /* 未配置的科目不猜，静默跳过 */
+      const key=this.kitKeyFor(s);
+      (key?(this.subjectKitMap()[key]||[]):[]).forEach(add);  /* 未配置的科目不猜，静默跳过 */
     });
     return out;
   },
-  /* 完整清单 = 课表映射出的物品 + 习惯里手写的固定检查项（按名字去重） */
+  /* 完整清单 = 按明日课表实时映射的物品 +（可选）习惯里手写的固定检查项。
+   * 课表一改，下次渲染立即重算；孩子端勾选按「物品名」保存，所以已勾项不会因清单变化而错位。 */
   bagChecklist(h, dateStr){
     const tm=this.getTimetable(dateStr||tomorrowStr());
     const out=[];
     const add=x=>{ x=String(x==null?"":x).trim(); if(x && !out.includes(x)) out.push(x); };
-    this.kitForSubjects(tm.subjects||[]).forEach(add);
-    ((h&&h.checklist)||[]).forEach(add);
+    const auto=this.kitEnabled()?this.kitForSubjects(tm.subjects||[]):[];
+    auto.forEach(add);
+    if(this.db.settings.kitMergeManual!==false || !auto.length) ((h&&h.checklist)||[]).forEach(add);
     return out;
   },
 

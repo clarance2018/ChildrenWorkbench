@@ -1437,44 +1437,195 @@ const Parent = {
     });
   },
 
-  /* ---------- P6 课表管理（日常 / 假期两套方案） ---------- */
+  /* ---------- P6 课表管理：标准《学生课程表》网格（课段 / 节次 × 周一~周日） ---------- */
+  ttMode(){ return Store.db.settings.scheduleMode==="vacation"?"vacation":"daily"; },
+
+  /* 单元格下方的「填写建议」：让家长当场看到这一科明天要带什么 */
+  ttHintHtml(subj){
+    const s=String(subj||"").trim();
+    if(!s) return `<span class="tt-hint-empty">填科目名，如「语文」</span>`;
+    const g=Store.suggestKit(s);
+    if(!g.matched) return `<span class="tt-hint-warn">⚠ 还没配要带的物品 · <a href="javascript:void(0)" onclick="Parent.ttQuickConfig()">补一条</a></span>`;
+    if(!g.items.length) return `<span class="tt-hint-ok">✅ 已设为「不用带东西」</span>`;
+    return `<span class="tt-hint-ok" title="匹配到科目「${esc(g.key)}」">🎒 ${esc(g.items.join("、"))}</span>`;
+  },
+  ttGridRows(mode,admin){
+    const grid=Store.grid(mode), rows=grid.rows||[];
+    let html="", i=0;
+    while(i<rows.length){
+      const p=rows[i].period, label=Store.periodLabel(p);
+      let span=0; while(i+span<rows.length && rows[i+span].period===p) span++;
+      for(let k=0;k<span;k++){
+        const idx=i+k, r=rows[idx];
+        html+=`<tr${k===0?' class="tt-period-start"':''}>`;
+        if(k===0) html+=`<td class="tt-period" rowspan="${span}">${label}</td>`;
+        html+=`<td class="tt-slot">${admin
+          ? `<input class="tt-label" value="${esc(r.label)}" aria-label="节次名称" onchange="Parent.ttSetLabel(${idx},this.value)">
+             <button class="tt-row-del" title="删除这一节" onclick="Parent.ttDelRow(${idx})">×</button>`
+          : `<b>${esc(r.label)}</b>`}</td>`;
+        for(let w=1;w<=7;w++){
+          const subj=r.cells[w-1]||"", meta=r.metas[w-1]||"";
+          html+=`<td class="tt-cell${subj?' has-subject':''}" data-r="${idx}" data-w="${w}">
+            ${admin
+              ? `<input class="tt-subj" list="tt-subject-list" value="${esc(subj)}" placeholder="—"
+                   onfocus="Parent.ttFocus(${idx},${w})" oninput="Parent.ttLiveHint(this,${idx},${w})"
+                   onchange="Parent.ttSetCell(${idx},${w},this.value,null)">
+                 <input class="tt-meta" value="${esc(meta)}" placeholder="老师 / 教室（选填）"
+                   onchange="Parent.ttSetCell(${idx},${w},null,this.value)">
+                 <div class="tt-hint" id="tt-hint-${idx}-${w}">${this.ttHintHtml(subj)}</div>`
+              : `<div class="tt-ro-subj">${esc(subj)||"—"}</div>
+                 ${meta?`<div class="tt-ro-meta">${esc(meta)}</div>`:""}`}
+          </td>`;
+        }
+        html+=`</tr>`;
+      }
+      /* 每个课段末尾留出「新增」入口：下午第 2 节之后还能继续加第 3、4 节 */
+      if(admin) html+=`<tr class="tt-addrow"><td colspan="9">
+        <button class="tt-add-btn" onclick="Parent.ttAddRow('${p}')">＋ 在「${label}」新增一节（如${label==="下午"?"下午第 3 节":"上午第 5 节"}）</button>
+      </td></tr>`;
+      i+=span;
+    }
+    return html||`<tr><td colspan="9"><div class="empty-tip">还没有节次，点下方按钮新增</div></td></tr>`;
+  },
+  /* 明天书包清单预览：课表一改实时重算，并列出没配物品的科目 */
+  ttPreviewHtml(){
+    const tmr=tomorrowStr(), tm=Store.getTimetable(tmr);
+    const subs=tm.subjects||[], items=Store.kitForSubjects(subs);
+    const missing=subs.filter(s=>!Store.suggestKit(s).matched);
+    const merged=Store.db.settings.kitMergeManual!==false;
+    return `<h3>🎒 明天自动生成的整理书包清单</h3>
+      <div class="small muted">下面这些物品由课表实时算出来，孩子端整理书包任务会逐项打勾；<b>没勾完不能点「我已完成」</b>。课表一改清单立即更新，<b>已经勾过的物品会保留勾选</b>。</div>
+      <div class="kit-preview mt12">📅 明天（${dateCn(tmr)}）：${subs.length?esc(subs.join(" / ")):"没有课"}
+        <div class="mt8">🎒 自动清单（${items.length} 项）：${items.length
+          ? items.map(x=>`<span class="tt-kit-chip">${esc(x)}</span>`).join("")
+          : '<span class="muted">（这些科目还没配物品，或明天无课）</span>'}</div>
+      </div>
+      ${missing.length?`<div class="tt-missing mt12">⚠ ${esc(missing.join("、"))} 还没配要带的物品，书包清单里不会有这一科。
+        <button class="btn btn-sm btn-outline" onclick="Parent.ttQuickConfig()">现在补上</button></div>`:""}
+      ${merged?`<div class="small muted mt8">提示：习惯任务里手写的固定检查项也会一起显示，可在「设置 · 科目 → 要带的物品」里关掉「合并手写检查项」，只保留纯课表清单。</div>`:""}
+      ${tm.notes?`<div class="small muted mt8">📝 课表备注：${esc(tm.notes)}</div>`:""}`;
+  },
   renderTimetable(){
-    const vac = Store.db.settings.scheduleMode==="vacation";
-    const pack = vac ? Store.db.vacationTimetable : Store.db.timetable;
-    const weekRows = [1,2,3,4,5,6,7].map(w=>{
-      const t=pack[w]||{subjects:[],notes:""};
-      return `<tr><td><b>${weekdayCn(w)}</b></td>
-        <td>${this.isAdmin()?`<input style="width:100%" value="${esc((t.subjects||[]).join(" / "))}" onchange="Parent.setTimetable(${w},this.value,null)" placeholder="用 / 分隔">`:(t.subjects||[]).join(" / ")||"-"}</td>
-        <td>${this.isAdmin()?`<input style="width:100%" value="${esc(t.notes||"")}" onchange="Parent.setTimetable(${w},null,this.value)" placeholder="备注，如：美术带彩笔">`:esc(t.notes||"-")}</td></tr>`;
-    }).join("");
-    const tmw = tomorrowStr();
-    const tmwT = Store.getTimetable(tmw);
+    const vac = this.ttMode()==="vacation", mode=this.ttMode(), admin=this.isAdmin();
+    const sugg = Store.subjectSuggestions();
+    const tmw = tomorrowStr(), tmwT = Store.getTimetable(tmw);
     return `<div class="page">
       <div class="page-title">课表管理 ${vac?'<span class="tag tag-orange">🏖 正在编辑假期方案</span>':'<span class="tag tag-teal">🏠 正在编辑日常方案</span>'}</div>
-      <div class="page-sub">两套方案独立保存，在「设置 · 日程方案」一键切换；临时调课仅改当天，两种方案下都生效。修改后孩子端会收到「课表有变化」提醒；整理书包类习惯任务会显示「明日课表」</div>
-      <div class="card"><h3>固定周课表（${vac?"假期":"日常"}）</h3>
-        <table class="grid"><thead><tr><th style="width:90px">星期</th><th>科目（用 / 分隔）</th><th>备注</th></tr></thead>
-        <tbody>${weekRows}</tbody></table>
-        ${this.isAdmin()?`<div class="flex mt12"><button class="btn btn-outline" onclick="Parent.copyPack('${vac?"vacation":"daily"}')">⧉ 把${vac?"日常":"假期"}方案复制过来</button></div>`:""}
+      <div class="page-sub">按学校发的《学生课程表》逐格填写：竖向是上午 / 下午的第几节，横向是星期一~星期日。两套方案独立保存，在「设置 · 日程方案」一键切换；临时调课仅改当天，两种方案下都生效。</div>
+
+      ${admin?`<div class="card tt-tips"><h3>✍️ 填写建议（关系到书包清单准不准）</h3>
+        <ul class="tt-tips-list">
+          <li><b>只填科目名</b>，不要写「第一节语文」「语文课」——系统按科目名去匹配要带的物品。</li>
+          <li>照着学校课表抄全称也行：<b>「体育与健康」→ 体育、「艺术(美术)」→ 美术、「数学拓展」→ 数学</b> 都能自动对上；每格下方会实时显示这一科建议携带的物品。</li>
+          <li>没配过物品的科目会标 <b>⚠</b>，点「补一条」当场补，否则书包清单里不会有这一科。老师 / 教室那行选填，只做展示。</li>
+          <li>下午第 2 节之后还能继续新增第 3、4 节；节次名称可改，点 × 可删掉整节。</li>
+        </ul>
+        <div class="tt-chips-label">常用科目（先点课表里的格子，再点这里填入）：</div>
+        <div class="tt-chips">${sugg.map((x,i)=>`<button class="tt-chip" onclick="Parent.ttFillAt(${i})">${esc(x)}</button>`).join("")}</div>
+      </div>`:""}
+
+      <div class="card" style="padding:0;overflow:hidden">
+        <div class="tt-grid-head">
+          <div><h3 style="margin:0">${vac?"假期":"学期"}课表 · 固定周课表</h3>
+            <div class="small muted">2026-2027 学年 · 按节次排列，和纸质课表一一对应</div></div>
+          ${admin?`<button class="btn btn-outline btn-sm" onclick="Parent.copyPack('${mode}')">⧉ 把${vac?"日常":"假期"}方案复制过来</button>`:""}
+        </div>
+        <div class="tt-grid-wrap"><table class="tt-grid">
+          <thead><tr><th class="tt-period">课段</th><th class="tt-slot">节次</th>
+            ${[1,2,3,4,5,6,7].map(w=>`<th>星期${"一二三四五六日"[w-1]}</th>`).join("")}</tr></thead>
+          <tbody>${this.ttGridRows(mode,admin)}</tbody>
+        </table></div>
+        <datalist id="tt-subject-list">${sugg.map(x=>`<option value="${esc(x)}"></option>`).join("")}</datalist>
+        ${admin?`<div class="tt-addbar">
+          <button class="btn btn-outline btn-sm" onclick="Parent.ttAddRow('morning')">＋ 新增上午节次</button>
+          <button class="btn btn-outline btn-sm" onclick="Parent.ttAddRow('afternoon')">＋ 新增下午节次</button>
+          <span class="small muted">行数不限；新增的行会排在同一课段的末尾并自动编号</span>
+        </div>`:""}
       </div>
-      <div class="card"><h3>临时调课</h3>
+
+      <div class="card tt-preview" id="tt-preview">${this.ttPreviewHtml()}</div>
+
+      <div class="card"><h3>临时调课（只改这一天）</h3>
         <div class="form-grid">
           <div class="form-row"><label>日期</label><input id="ov-date" type="date" value="${tmw}"></div>
-          <div class="form-row"><label>科目（用 / 分隔，留空=清除调课）</label><input id="ov-subjects" placeholder="当前：${esc((tmwT.subjects||[]).join(" / ")||"无")}"></div>
+          <div class="form-row"><label>科目（用 / 分隔，留空=清除调课）</label><input id="ov-subjects" list="tt-subject-list" placeholder="当前：${esc((tmwT.subjects||[]).join(" / ")||"无")}"></div>
           <div class="form-row full"><label>备注</label><input id="ov-notes" placeholder="当前：${esc(tmwT.notes||"无")}"></div>
         </div>
-        ${this.isAdmin()?`<button class="btn btn-primary mt12" onclick="Parent.setOverride()">保存调课</button>`:""}
+        ${admin?`<button class="btn btn-primary mt12" onclick="Parent.setOverride()">保存调课</button>`:""}
+        <div class="small muted mt8">调课同样会触发孩子端「课表有变化」提醒，并即时重算第二天的书包清单。</div>
       </div></div>`;
   },
+  /* ---- 网格交互 ---- */
+  ttFocus(r,w){ this._ttFocus={r,w}; },
+  ttLiveHint(el,r,w){
+    const h=document.getElementById&&document.getElementById(`tt-hint-${r}-${w}`);
+    if(h) h.innerHTML=this.ttHintHtml(el.value);
+  },
+  ttRefreshPreview(){
+    const box=document.getElementById&&document.getElementById("tt-preview");
+    if(box) box.innerHTML=this.ttPreviewHtml();
+  },
+  ttSetCell(r,w,subject,meta){
+    if(!this.guard())return;
+    const patch={}; if(subject!=null) patch.subject=subject; if(meta!=null) patch.meta=meta;
+    Store.setGridCell(this.ttMode(),r,w,patch);
+    if(subject!=null){ const h=document.getElementById&&document.getElementById(`tt-hint-${r}-${w}`); if(h) h.innerHTML=this.ttHintHtml(subject); }
+    this.ttRefreshPreview();
+  },
+  ttSetLabel(idx,v){ if(!this.guard())return; Store.setGridCell(this.ttMode(),idx,1,{label:v}); },
+  ttAddRow(period){
+    if(!this.guard())return;
+    Store.addGridRow(this.ttMode(),period);
+    route(); toast(`已新增${Store.periodLabel(period)}一节，可以继续填科目了`);
+  },
+  ttDelRow(idx){
+    if(!this.guard())return;
+    confirmModal("删除这一节？", "这一节里 7 天的科目都会被清空（可以随时再加回来）。", ()=>{
+      Store.removeGridRow(this.ttMode(),idx); route(); toast("已删除该节次");
+    });
+  },
+  ttFillAt(i){ this.ttFill(Store.subjectSuggestions()[i]||""); },
+  ttFill(subject){
+    if(!this.guard())return;
+    const f=this._ttFocus;
+    if(!f) return toast("先点一下课表里要填写的格子，再点科目名");
+    Store.setGridCell(this.ttMode(),f.r,f.w,{subject});
+    const el=document.querySelector&&document.querySelector(`.tt-cell[data-r="${f.r}"][data-w="${f.w}"] .tt-subj`);
+    if(el) el.value=subject;
+    const h=document.getElementById&&document.getElementById(`tt-hint-${f.r}-${f.w}`);
+    if(h) h.innerHTML=this.ttHintHtml(subject);
+    this.ttRefreshPreview();
+    if(!el) route();
+    toast(`已填入「${subject}」`);
+  },
+  ttQuickConfig(){
+    if(!this.guard())return;
+    const f=this._ttFocus||{};
+    const rows=(Store.grid(this.ttMode()).rows||[]);
+    const pre=(f.r!=null&&f.w!=null&&rows[f.r]) ? (rows[f.r].cells[f.w-1]||"") : "";
+    modal("补充「科目 → 要带的物品」", `
+      <div class="small muted">课表里的科目全称如果没匹配到物品，书包清单就不会出现这一科。填好后立刻生效，孩子端清单会实时刷新。</div>
+      <div class="form-row mt12"><label>科目名（照课表填，如 道德与法治）</label><input id="ttqc-subject" value="${esc(pre)}"></div>
+      <div class="form-row mt12"><label>要带的物品（用 / 或 、 分隔）</label><input id="ttqc-items" placeholder="如：课本 / 练习册 / 彩笔"></div>`, [
+      { label:"保存并生成清单", cls:"btn-primary", fn:()=>{
+          const k=String(((document.getElementById("ttqc-subject")||{}).value)||"").trim();
+          const v=String(((document.getElementById("ttqc-items")||{}).value)||"").trim();
+          if(!k) return toast("请填科目名");
+          const kit=Object.assign({},Store.db.settings.subjectKit||{});
+          kit[k]=v.split(/[\/、,，]/).map(x=>x.trim()).filter(Boolean);
+          Store.db.settings.subjectKit=kit; Store.save(); closeModal(); route();
+          toast(`已配置「${k}」的要带物品`);
+        } },
+      { label:"取消", cls:"btn-outline", fn:()=>closeModal() }
+    ]);
+  },
+  /* 兼容旧的「一天一行」写入口（脚本 / REST 回写）：同步更新网格该列 */
   setTimetable(w, subjectsStr, notes){
     if(!this.guard())return;
-    const pack=(Store.db.settings.scheduleMode==="vacation")?Store.db.vacationTimetable:Store.db.timetable;
-    if(!pack[w]) pack[w]={subjects:[],notes:""};
-    const t=pack[w];
-    if(subjectsStr!=null) t.subjects=subjectsStr.split(/[\/、,，]/).map(s=>s.trim()).filter(Boolean);
-    if(notes!=null) t.notes=notes;
-    this.markTimetableChanged();
-    Store.save(); toast(weekdayCn(w)+"课表已更新（"+(Store.db.settings.scheduleMode==="vacation"?"假期":"日常")+"方案）");
+    const cur=((Store.db[Store.packKey(this.ttMode())]||{})[w]||{}).subjects||[];
+    const list=subjectsStr!=null?subjectsStr.split(/[\/、,，]/).map(s=>s.trim()).filter(Boolean):cur;
+    Store.setWeekdaySubjects(this.ttMode(),w,list,notes);
+    toast(weekdayCn(w)+"课表已更新");
   },
   /* B：课表任何改动都打一个时间戳，孩子端据此提示「课表有变化」 */
   markTimetableChanged(){
@@ -1482,11 +1633,17 @@ const Parent = {
   },
   copyPack(target){
     if(!this.guard())return;
-    const src = target==="vacation" ? Store.db.timetable : Store.db.vacationTimetable;
-    const dst = target==="vacation" ? Store.db.vacationTimetable : Store.db.timetable;
+    const toVac = target==="vacation";
+    const src = toVac ? Store.db.timetable : Store.db.vacationTimetable;
+    const dst = toVac ? Store.db.vacationTimetable : Store.db.timetable;
+    const srcGrid = toVac ? Store.db.timetableGrid : Store.db.vacationTimetableGrid;
+    const dstKey = toVac ? "vacationTimetableGrid" : "timetableGrid";
     [1,2,3,4,5,6,7].forEach(w=>{ dst[w]=JSON.parse(JSON.stringify(src[w]||{subjects:[],notes:""})); });
-    this.markTimetableChanged();
-    Store.save(); route(); toast("已复制整套课表");
+    const g=JSON.parse(JSON.stringify(srcGrid||Store.gridDefault()));
+    g.updated_at=new Date().toISOString();
+    Store.db[dstKey]=g;
+    Store.db.settings.timetable_updated_at=g.updated_at;
+    Store.save(); route(); toast("已复制整套课表（含节次网格）");
   },
   setOverride(){
     if(!this.guard())return;
@@ -1526,6 +1683,8 @@ const Parent = {
       [Store.db.timetable,Store.db.vacationTimetable].forEach(p=>
         ((((p||{})[w])||{}).subjects||[]).forEach(x=>used.add(String(x).trim())));
     });
+    [Store.db.timetableGrid,Store.db.vacationTimetableGrid].forEach(g=>
+      ((g||{}).rows||[]).forEach(r=>(r.cells||[]).forEach(x=>used.add(String(x==null?"":x).trim()))));
     const keys=[...new Set([...Object.keys(kit),...[...used].filter(Boolean)])];
     const rows=keys.map(k=>`<div class="kit-row">
       <label>${esc(k)}</label>
@@ -1534,8 +1693,9 @@ const Parent = {
     const tm=Store.getTimetable(tomorrowStr());
     const preview=Store.kitForSubjects(tm.subjects||[]);
     return `<div class="card"><h3>🎒 科目 → 要带的物品</h3>
-      <div class="small muted">开启后，孩子端「整理书包」任务的检查清单会按<b>明日课表</b>自动生成，<b>没勾完不能点「我已完成」</b>。习惯任务里手写的检查清单仍会一并保留（可在习惯编辑里删掉重复项）。</div>
+      <div class="small muted">开启后，孩子端「整理书包」任务的检查清单会按<b>明日课表</b>自动生成，<b>没勾完不能点「我已完成」</b>。课表一改清单立即更新，已勾过的物品保留勾选。科目名要和「课表管理」里填的一致（全称如「体育与健康」会自动匹配到「体育」）。</div>
       <label class="check-row mt12"><input type="checkbox" ${s.kitEnabled!==false?"checked":""} ${this.isAdmin()?"":"disabled"} onchange="Parent.setKitEnabled(this.checked)"> 按课表自动生成整理书包清单</label>
+      <label class="check-row mt12"><input type="checkbox" ${s.kitMergeManual!==false?"checked":""} ${this.isAdmin()?"":"disabled"} onchange="Parent.setKitMergeManual(this.checked)"> 合并习惯任务里手写的固定检查项（关掉后只按课表生成，清单最干净）</label>
       <label class="check-row mt12"><input type="checkbox" ${s.tt_speak!==false?"checked":""} ${this.isAdmin()?"":"disabled"} onchange="Parent.setTimetableSpeak(this.checked)"> 孩子端「🔊 读给我听」+ 到点语音播报明日课表</label>
       <div class="kit-preview mt12">📅 明天（${dateCn(tomorrowStr())}）：${(tm.subjects||[]).join(" / ")||"没有课"}
         <div class="small muted mt8">🎒 自动清单：${preview.length?esc(preview.join("、")):"（未配置这些科目的物品，或明天无课）"}</div></div>
@@ -1567,6 +1727,7 @@ const Parent = {
     Store.save(); route(); toast(`已添加科目「${key}」`);
   },
   setKitEnabled(v){ Store.db.settings.kitEnabled=v; Store.save(); toast(v?"已开启按课表自动生成清单":"已关闭，改用习惯里的手写清单"); },
+  setKitMergeManual(v){ Store.db.settings.kitMergeManual=v; Store.save(); toast(v?"已合并手写检查项":"已改为纯课表清单"); },
   setTimetableSpeak(v){ Store.db.settings.tt_speak=v; Store.save(); toast(v?"已开启课表语音播报":"已关闭课表语音播报"); },
 
   /* ---------- P9 设置 ---------- */

@@ -402,14 +402,38 @@ function createService({ getState, save, dataDir, storage }) {
       })()
     };
   }
+  /* 标准课表网格（课段 / 节次 × 7 天）只读视图，供 REST / MCP 查询。
+   * 网格由前端维护，这里只做投影，不反过来写，避免两套数据互相覆盖。 */
+  function getTimetableGrid() {
+    const state = getState();
+    const mode = (state.settings || {}).scheduleMode === "vacation" ? "vacation" : "daily";
+    const g = state[mode === "vacation" ? "vacationTimetableGrid" : "timetableGrid"] || { rows: [] };
+    const pack = state[mode === "vacation" ? "vacationTimetable" : "timetable"] || {};
+    const weekday_subjects = {};
+    [1, 2, 3, 4, 5, 6, 7].forEach(w => {
+      weekday_subjects[w] = { weekday_cn: WEEKDAY_CN[w], subjects: (pack[w] || {}).subjects || [], notes: (pack[w] || {}).notes || "" };
+    });
+    const rows = (g.rows || []).map(r => ({
+      period: r.period || "morning", label: r.label || "",
+      weekdays: [1, 2, 3, 4, 5, 6, 7].map(w => ({
+        weekday: w, weekday_cn: WEEKDAY_CN[w],
+        subject: String((r.cells || [])[w - 1] || ""), meta: String((r.metas || [])[w - 1] || "")
+      }))
+    }));
+    return { ok: true, schedule_mode: mode, updated_at: g.updated_at || null, weekday_subjects, rows };
+  }
   function setTimetableWeekday(weekday, body) {
     const w = Number(weekday);
     if (!(w >= 1 && w <= 7)) return { ok: false, error: "bad_weekday", message: "星期应为 1-7" };
     const state = getState();
+    const at = new Date().toISOString();
     state.timetable[w] = {
       subjects: Array.isArray(body.subjects) ? body.subjects.map(s => String(s).slice(0, 10)).slice(0, 10) : [],
-      notes: String(body.notes || "").slice(0, 200)
+      notes: String(body.notes || "").slice(0, 200),
+      updated_at: at   /* 前端据此把这一列反向同步回标准课表网格 */
     };
+    state.settings = state.settings || {};
+    state.settings.timetable_updated_at = at;
     save();
     return { ok: true, weekday: w, timetable: state.timetable[w] };
   }
@@ -420,6 +444,8 @@ function createService({ getState, save, dataDir, storage }) {
       subjects: Array.isArray(body.subjects) ? body.subjects.map(s => String(s).slice(0, 10)).slice(0, 10) : [],
       notes: String(body.notes || "").slice(0, 200)
     };
+    state.settings = state.settings || {};
+    state.settings.timetable_updated_at = new Date().toISOString();
     save();
     return { ok: true, date, timetable: state.timetableOverrides[date] };
   }
@@ -549,6 +575,9 @@ function createService({ getState, save, dataDir, storage }) {
       params: [{ name: "freq", in: "body", type: "string", desc: "daily/weekly/once" }, { name: "weekdays", in: "body", type: "array", desc: "weekly 时的星期列表" }, { name: "template", in: "body", type: "object", desc: "任务模板字段同 tasks.create" }],
       run: a => createPeriodRule(a) },
 
+    { id: "timetable.grid", method: "GET", path: "/api/v1/timetable/grid", scope: "timetable:read",
+      summary: "查询标准课表网格（课段/节次 × 周一~周日）与每天科目汇总",
+      params: [], run: () => getTimetableGrid() },
     { id: "timetable.get", method: "GET", path: "/api/v1/timetable/:date", scope: "timetable:read", summary: "查询某天课表（含明日课表）",
       params: [{ name: "date", in: "path", type: "string", required: true, desc: "YYYY-MM-DD" }], run: a => getTimetable(a.date) },
     { id: "timetable.set_weekday", method: "PUT", path: "/api/v1/timetable/weekday/:weekday", scope: "timetable:write", summary: "设置固定周课表",
@@ -627,7 +656,7 @@ function createService({ getState, save, dataDir, storage }) {
     listDrafts, confirmDraft, confirmBatch, discardDraft,
     getNote, setNote, importText,
     listHabits, createHabit, listPeriodRules, createPeriodRule,
-    getTimetable, setTimetableWeekday, setTimetableOverride,
+    getTimetable, getTimetableGrid, setTimetableWeekday, setTimetableOverride,
     getProgress, getWeeklyReport
   };
 }

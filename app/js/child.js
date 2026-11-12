@@ -98,6 +98,13 @@ const Child = {
     const open=localStorage.getItem("hw_tt_open")!=="0";
     const kit=Store.kitEnabled()?Store.kitForSubjects(subs):[];
     const kitHtml=kit.length?`<div class="tt-kit">🎒 要带：${kit.map(x=>`<span>${esc(x)}</span>`).join("")}</div>`:"";
+    /* 按标准课表的「课段 / 节次」列出明天的上课顺序，和纸质课表一一对应 */
+    const periods=(typeof Store.timetablePeriods==="function")?Store.timetablePeriods(tomorrowStr()):null;
+    const periodsHtml=(periods&&periods.length)?`<div class="tt-periods">
+      <div class="tt-periods-title">📖 明天上课顺序</div>
+      ${periods.map(x=>`<div class="tt-pr-row"><span class="tt-pr-label">${Store.periodLabel(x.period)} · ${esc(x.label)}</span>
+        <b>${esc(x.subject)}</b>${x.meta?`<span class="tt-pr-meta">${esc(x.meta)}</span>`:""}</div>`).join("")}
+    </div>`:"";
     const speakBtn=s.tt_speak!==false?`<button class="btn btn-outline btn-sm" onclick="Child.speakTomorrow()">🔊 读给我听</button>`:"";
     return `<div class="tt-card">
       <div class="tt-head" onclick="Child.toggleTimetableCard()">
@@ -109,6 +116,7 @@ const Child = {
       <div class="tt-body ${open?"":"hidden"}" id="tt-card-body">
         <div class="tt-subjects">${subs.length?subs.map((s2,i)=>`<span class="tt-sub" style="background:${this.subjectBg(s2)}">
           <i>${i+1}</i>${this.subjectIcon(s2)} ${esc(s2)}</span>`).join(""):'<span class="small muted">明天没有课</span>'}</div>
+        ${periodsHtml}
         ${tm.notes?`<div class="tt-note">📝 ${this.maybeRuby(tm.notes)}</div>`:""}
         ${kitHtml}
         <div class="flex mt12" style="flex-wrap:wrap;gap:8px">
@@ -143,6 +151,13 @@ const Child = {
     t.kit_checks=this.bagChecks(t); t.kit_checks[name]=!!v;
     t.updated_at=new Date().toISOString();   /* 勾选状态跨端合并时胜出 */
     Store.save(); Sound.pop(); route();
+  },
+  /* 只把「课表已更新」横幅收掉，不动任何勾选项 */
+  ackKitChange(id){
+    const t=Store.getTask(id); if(!t) return;
+    t.kit_ack_at=(Store.db.settings||{}).timetable_updated_at||new Date().toISOString();
+    t.updated_at=new Date().toISOString();
+    Store.save(); route();
   },
 
   /* ---------- K1 今日工作台（作业 / 任务分组） ---------- */
@@ -432,7 +447,15 @@ const Child = {
         <span>${this.maybeRuby(c)}</span>
       </label>`;
     }).join("");
-    const kitHead = dyn.length?`<div class="kit-hint">🎒 按明天课表自动生成的清单（${items.length} 项）· 全部勾好才能完成</div>`:"";
+    const kept = dyn.length?items.filter(c=>checks[c]).length:0;
+    const changedAt=(Store.db.settings||{}).timetable_updated_at;
+    const kitChanged = dyn.length && changedAt && (!t.kit_ack_at || changedAt>t.kit_ack_at);
+    const kitHead = dyn.length?`
+      ${kitChanged?`<div class="kit-changed">🔄 课表刚更新过，书包清单已按最新课表刷新；已经勾好的 <b>${kept}</b> 样会保留，新多出来的物品要再勾一次。
+        <button class="btn btn-ghost btn-sm" onclick="Child.ackKitChange('${t.id}')">知道了</button></div>`:""}
+      <div class="kit-hint">🎒 按明天课表自动生成的清单（${items.length} 项）· 全部勾好才能完成
+        <div class="kit-hint-sub">课表一改清单立即更新，已勾过的物品按名字保留勾选（已勾 ${kept}/${items.length}）</div>
+      </div>`:"";
     return `
       ${Store.habitRemindTime(h)?`<div class="tag tag-orange">⏰ 提醒时间 ${Store.habitRemindTime(h)}</div>`:""}
       ${tmw?`<div class="timetable-strip mt12" style="text-align:left">📅 明日课表：${(tmw.subjects||[]).join(" / ")||"无"}${tmw.notes?`　备注：${esc(tmw.notes)}`:""}</div>`:""}
