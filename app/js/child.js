@@ -102,12 +102,7 @@ const Child = {
     return `<div class="child-shell">
       <div class="child-header">
         <div class="child-date">${dateCn(todayStr())}${modeTag}</div>
-        <div class="child-stats">
-          <div class="stat-pill">⭐ ${Store.db.points.total}</div>
-          <div class="stat-pill">🔥 连续 ${Store.db.streak.days} 天</div>
-          ${unplayedEnc.length?`<button class="stat-pill mail-pill" onclick="Child.openMailbox()" title="爸爸妈妈的悄悄话">📮 ${unplayedEnc.length}</button>`:""}
-          <button class="kiosk-fab" onclick="Child.toggleKiosk()">${kioskOn?"🔓 退出专注":"🖥 专注模式"}</button>
-        </div>
+        <button class="kiosk-fab" onclick="Child.toggleKiosk()">${kioskOn?"🔓 退出专注":"🖥 专注模式"}</button>
       </div>
       ${noteHtml}
       ${allDone?`<div class="celebrate-card">
@@ -118,10 +113,20 @@ const Child = {
       </div>`:""}
       ${expired.length?`<div class="note-card" style="background:#f8fafc;border-color:#e5e7eb">
         <div class="small muted">昨天有 ${expired.length} 项没完成，已自动归档。今天继续加油 💪</div></div>`:""}
-      <div class="progress-wrap">
-        <div class="flex-between"><b>今日进度</b><span class="muted small">已完成 ${done} / ${tasks.length}</span></div>
-        <div class="progress-bar"><i style="width:${pct}%"></i></div>
+      <div class="child-hero">
+        <div class="hero-ring" style="background:conic-gradient(#3b82f6 ${pct}%, #e6ebf3 0)">
+          <div class="hero-ring-in">
+            <b>${pct}<i>%</i></b>
+            <span>今日进度</span>
+          </div>
+        </div>
+        <div class="hero-stats">
+          <div class="hero-stat"><b>⭐ ${Store.db.points.total}</b><span>我的星星</span></div>
+          <div class="hero-stat"><b>🔥 ${Store.db.streak.days}<i>天</i></b><span>连续完成</span></div>
+          ${unplayedEnc.length?`<button class="hero-stat hero-mail" onclick="Child.openMailbox()"><b>📮 ${unplayedEnc.length}</b><span>爸妈的话</span></button>`:""}
+        </div>
       </div>
+      <div class="small muted" style="text-align:center;margin:-6px 0 12px">已完成 ${done} / ${tasks.length}${tasks.length-done?` · 还差 ${tasks.length-done} 项，加油！`:" · 太棒了！"}</div>
       <div class="filter-chips">
         <button class="${filter==="all"?"on":""}" onclick="Child.setFilter('all')">全部 ${tasks.length}</button>
         <button class="${filter==="homework"?"on":""}" onclick="Child.setFilter('homework')">📘 作业 ${homework.length}</button>

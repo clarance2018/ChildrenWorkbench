@@ -16,28 +16,73 @@ const Parent = {
   isAdmin(){ return Store.db.settings.role==="admin"; },
   guard(){ if(!this.isAdmin()){ toast("爷爷奶奶为只读权限，不可编辑", null); return false; } return true; },
 
+  /* 主 Tab（顶栏 + 移动端底部 Tab 共用）与次级页面（收进「更多」） */
+  PRIMARY: [
+    { h:"#/parent",       t:"今日", i:"🏠" },
+    { h:"#/parent/import", t:"发布", i:"📝" },
+    { h:"#/parent/review", t:"复核", i:"👀" },
+    { h:"#/parent/report", t:"周报", i:"📊" },
+    { h:"#/parent/more",   t:"更多", i:"☰" }
+  ],
+  SECONDARY: [
+    { h:"#/parent/rewards",   t:"奖励",     i:"🎁", d:"星星兑换商城与审批" },
+    { h:"#/parent/mistakes",  t:"错题本",   i:"📕", d:"退回错题与口算错题，周末重练" },
+    { h:"#/parent/tools",     t:"工具",     i:"✏️", d:"口算练习生成器，可打印" },
+    { h:"#/parent/ai",        t:"AI 接入",  i:"🤖", d:"MCP Token、任务草稿确认" },
+    { h:"#/parent/habits",    t:"习惯任务", i:"🧩", d:"每日习惯打卡设置" },
+    { h:"#/parent/timetable", t:"课表管理", i:"📅", d:"周课表与临时调课" },
+    { h:"#/parent/periods",   t:"周期任务", i:"🔁", d:"每天/每周重复任务规则" },
+    { h:"#/parent/settings",  t:"设置",     i:"⚙️", d:"角色、护眼、目标等" }
+  ],
+  secondaryOf(h){ return this.SECONDARY.some(s=>s.h===h); },
+
   nav(active){
-    const pending = (typeof AI !== "undefined") ? AI.count() : 0;
+    const aiPending = (typeof AI !== "undefined") ? AI.count() : 0;
     const revBadge = Store.db && Store.db.tasks ? Store.db.tasks.filter(t=>t.date===todayStr()&&t.status===STATUS.DONE).length : 0;
     const redBadge = (Store.db && Store.pendingRedemptions) ? Store.pendingRedemptions().length : 0;
-    const items = [
-      ["#/parent","今日任务"],["#/parent/import","文本导入"],["#/parent/review",`完成复核${revBadge?`<span class="nav-badge">${revBadge}</span>`:""}`],
-      ["#/parent/report","周报"],
-      ["#/parent/ai",`AI 接入${pending?`<span class="nav-badge">${pending}</span>`:""}`],
-      ["#/parent/rewards",`奖励${redBadge?`<span class="nav-badge">${redBadge}</span>`:""}`],
-      ["#/parent/mistakes","错题本"],["#/parent/tools","工具"],
-      ["#/parent/habits","习惯任务"],["#/parent/timetable","课表管理"],
-      ["#/parent/periods","周期任务"],["#/parent/settings","设置"]
-    ];
+    const moreBadge = aiPending + redBadge;
+    const badges = { "#/parent/review": revBadge, "#/parent/more": moreBadge };
+    const isOn = h => active===h || (h==="#/parent/more" && this.secondaryOf(active));
+    const tabs = this.PRIMARY.map(p=>({ ...p, b: badges[p.h]||0, on: isOn(p.h) }));
+    /* 后台预取 AI 草稿，让「更多」红点在任意页面可见 */
+    if (typeof AI !== "undefined" && !AI.loaded && !AI.loading)
+      AI.load().then(()=>{ if(location.hash.startsWith("#/parent") && !location.hash.startsWith("#/parent/ai")) route(); }).catch(()=>{});
     return `<div class="topbar">
       <div class="brand">👨‍👩‍👧 家长后台</div>
-      <nav>${items.map(([h,t])=>`<a href="${h}" class="${active===h?'active':''}">${t}</a>`).join("")}</nav>
+      <nav>${tabs.map(p=>`<a href="${p.h}" class="${p.on?'active':''}">${p.t}${p.b?`<span class="nav-badge">${p.b}</span>`:""}</a>`).join("")}</nav>
       <div class="role-switch">角色：
         <select onchange="Parent.switchRole(this.value)">
           <option value="admin" ${this.isAdmin()?"selected":""}>爸爸/妈妈（管理员）</option>
           <option value="readonly" ${!this.isAdmin()?"selected":""}>爷爷/奶奶（只读）</option>
         </select>
         <a href="#/" class="muted small" style="margin-left:8px">返回入口</a>
+      </div>
+    </div>
+    <div class="tabbar">${tabs.map(p=>`<a href="${p.h}" class="${p.on?'active':''}">
+      <span class="tb-icon">${p.i}</span><span>${p.t}</span>${p.b?`<span class="tb-badge">${p.b}</span>`:""}</a>`).join("")}</div>`;
+  },
+
+  /* ---------- 「更多」页：次级功能收纳 ---------- */
+  renderMore(){
+    const aiPending = (typeof AI !== "undefined") ? AI.count() : 0;
+    const redBadge = (Store.db && Store.pendingRedemptions) ? Store.pendingRedemptions().length : 0;
+    const badgeOf = h => (h==="#/parent/ai" ? aiPending : (h==="#/parent/rewards" ? redBadge : 0));
+    return `<div class="page page-narrow">
+      <div class="page-title">更多功能</div>
+      <div class="page-sub">奖励、错题本、AI 接入等管理入口都在这里</div>
+      <div class="card" style="padding:8px 0">
+        ${this.SECONDARY.map(s=>`<a class="more-row" href="${s.h}">
+          <span class="mr-icon">${s.i}</span>
+          <span class="mr-main"><b>${s.t}</b><span class="small muted">${s.d}</span></span>
+          ${badgeOf(s.h)?`<span class="nav-badge">${badgeOf(s.h)}</span>`:""}
+          <span class="mr-arrow">›</span>
+        </a>`).join("")}
+      </div>
+      <div class="card">
+        <div class="flex-between">
+          <div><b>当前角色</b><div class="small muted mt8">${this.isAdmin()?"爸爸/妈妈（管理员）：可发布与修改":"爷爷/奶奶（只读）：仅查看"}</div></div>
+          <button class="btn btn-ghost btn-sm" onclick="Parent.switchRole('${this.isAdmin()?"readonly":"admin"}')">切换为${this.isAdmin()?"只读":"管理员"}</button>
+        </div>
       </div>
     </div>`;
   },
@@ -56,6 +101,7 @@ const Parent = {
       case "timetable": return this.nav("#/parent/timetable") + this.renderTimetable();
       case "periods": return this.nav("#/parent/periods") + this.renderPeriods();
       case "settings": return this.nav("#/parent/settings") + this.renderSettings();
+      case "more": return this.nav("#/parent/more") + this.renderMore();
       default: return this.nav("#/parent") + this.renderToday();
     }
   },
@@ -87,6 +133,7 @@ const Parent = {
           <button class="btn btn-outline" onclick="Parent.batchTemplateModal()">📅 模板批量发布</button>
           <button class="btn btn-primary" onclick="Parent.newTaskModal()">+ 新建任务</button></div>`:""}
       </div>
+      ${this.todayDashboard(tasks)}
       ${tpls.length?`<div class="card" style="padding:14px 16px">
         <div class="flex-between">
           <div class="small muted mb12">常用模板（点击直接发布到今天；「模板批量发布」可一次发布一整周）</div>
@@ -107,6 +154,27 @@ const Parent = {
         <table class="grid"><thead><tr><th>任务</th><th>计时</th><th>状态</th><th>用时</th><th>星星</th><th></th></tr></thead>
         <tbody>${rows || `<tr><td colspan="6"><div class="empty-tip">今天还没有任务，点击右上角新建、复制昨日或使用文本导入</div></td></tr>`}</tbody></table>
       </div>
+    </div>`;
+  },
+  /* 今日工作台概览条：完成率 / 待复核 / 今日星星 / 连续打卡 / 待办提醒 */
+  todayDashboard(tasks){
+    const valid = tasks.filter(t=>t.status!==STATUS.EXPIRED);
+    const done = valid.filter(t=>t.status===STATUS.DONE).length;
+    const pct = valid.length ? Math.round(done/valid.length*100) : 0;
+    const stars = tasks.reduce((s,t)=>s+(t.star_awarded||0),0);
+    const streak = (Store.db.streak && Store.db.streak.days) || 0;
+    const red = (Store.db && Store.pendingRedemptions) ? Store.pendingRedemptions().length : 0;
+    const aiPending = (typeof AI !== "undefined") ? AI.count() : 0;
+    const undone = valid.filter(t=>t.status!==STATUS.DONE).length;
+    const M = (label, value, note, href) => `<a class="metric m-link" href="${href}">
+      <div class="m-label">${label}</div><div class="m-value">${value}</div><div class="m-note">${note}</div></a>`;
+    return `<div class="report-grid mb12">
+      ${M("今日完成率", pct+"%", `${done}/${valid.length} 项 · ${undone?`还剩 ${undone} 项`:"全部完成 🎉"}`, "#/parent/review")}
+      ${M("待家长复核", done, done?"孩子已完成，等你确认":"暂无待复核", "#/parent/review")}
+      ${M("今日得星", stars+"⭐", `累计 ${Store.db.points.earned_total||0} ⭐`, "#/parent/rewards")}
+      ${M("连续完成", streak+" 天", streak>=3?"保持得很好！":"坚持连续完成可加成", "#/parent/report")}
+      ${red?M("待审批兑换", red, "孩子申请兑换奖品", "#/parent/rewards"):""}
+      ${aiPending?M("AI 草稿待确认", aiPending, "AI 创建的任务等你确认", "#/parent/ai"):""}
     </div>`;
   },
   /* 未完成提示：18 点后高亮，21 点后转红 */
