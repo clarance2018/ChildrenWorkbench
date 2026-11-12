@@ -135,8 +135,8 @@ const Auth = {
     const cur=(Auth.sessionId||"");
     const rows=sessions.map(s=>`<tr>
       <td>${s.scope==="parent"?"👨‍👩‍👧 家长":"🧒 孩子"}<div class="small muted">${esc(s.label||"")}</div></td>
-      <td class="small">${esc((s.last_seen||"").slice(0,16).replace("T"," "))}</td>
-      <td class="small">${esc((s.expires_at||"").slice(0,10))}</td>
+      <td class="small">${esc(fmtTime(s.last_seen))}</td>
+      <td class="small">${esc(fmtDateOf(s.expires_at))}</td>
       <td>${s.id===cur?`<span class="tag tag-green">当前</span>`:`<button class="btn btn-red btn-sm" onclick="Auth.revokeSession('${s.id}')">退出</button>`}</td>
     </tr>`).join("");
     return `<div class="card"><h3>设备与登录</h3>

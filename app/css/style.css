@@ -205,6 +205,8 @@ table.grid tr:hover td{background:#fafbfc;}
 .tpl-chip{display:inline-flex;align-items:center;gap:2px;}
 .tpl-chip .tpl-del{border:none;background:none;color:var(--text3);font-size:15px;line-height:1;padding:4px 5px;border-radius:6px;cursor:pointer;}
 .tpl-chip .tpl-del:hover{color:#b91c1c;background:#fef2f2;}
+.tpl-chip .tpl-edit{border:none;background:none;color:var(--text3);font-size:13px;line-height:1;padding:4px 5px;border-radius:6px;cursor:pointer;}
+.tpl-chip .tpl-edit:hover{color:var(--blue-d);background:#eff6ff;}
 .section-gap{margin-top:26px;}
 .flex{display:flex;align-items:center;gap:10px;}
 .flex-between{display:flex;align-items:center;justify-content:space-between;gap:10px;}
@@ -418,3 +420,27 @@ body.kiosk-on .task-card{transform:scale(1.01);}
   color:#166534;font-size:13.5px;line-height:1.6;}
 .pen-history{border-left:4px solid var(--orange);}
 .row-penalty{background:#fff7ed;}
+
+/* ========== 孩子端明日课表大卡 ========== */
+.tt-card{background:linear-gradient(135deg,#eff6ff 0%,#e0e7ff 55%,#f0f9ff 100%);
+  border:1px solid #c7d2fe;border-radius:var(--radius);box-shadow:var(--shadow);
+  padding:14px 16px;margin-bottom:14px;}
+.tt-head{display:flex;align-items:center;gap:12px;cursor:pointer;}
+.tt-icon{font-size:30px;flex:none;}
+.tt-title{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.tt-title b{font-size:16.5px;color:#1e3a8a;}
+.tt-title span{font-size:12.5px;color:#4b5563;}
+.tt-toggle{font-size:12.5px;color:var(--blue-d);font-weight:600;white-space:nowrap;}
+.tt-body{margin-top:12px;}
+.tt-subjects{display:flex;flex-wrap:wrap;gap:8px;}
+.tt-sub{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:7px 13px;
+  font-size:15px;font-weight:700;color:#1f2937;}
+.tt-sub i{font-style:normal;font-size:11px;font-weight:800;color:#fff;background:var(--blue);
+  width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;}
+.tt-note{margin-top:10px;background:rgba(255,255,255,.72);border-radius:10px;padding:9px 12px;
+  font-size:14px;color:#374151;line-height:1.6;}
+@media (max-width:480px){
+  .tt-card{padding:12px;}
+  .tt-title b{font-size:15px;}
+  .tt-sub{font-size:14px;padding:6px 10px;}
+}

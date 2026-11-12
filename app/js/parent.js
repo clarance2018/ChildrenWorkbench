@@ -146,7 +146,8 @@ const Parent = {
         <div class="flex" style="flex-wrap:wrap">
           ${tpls.map(p=>`<span class="tpl-chip">
             <button class="btn btn-outline btn-sm" onclick="Parent.useTemplate('${p.id}')">${esc(p.title)} · ${esc(p.subject)}</button>
-            ${this.isAdmin()?`<button class="tpl-del" title="删除模板" onclick="Parent.delTemplate('${p.id}')">×</button>`:""}
+            ${this.isAdmin()?`<button class="tpl-edit" title="编辑模板" onclick="Parent.editTemplateModal('${p.id}')">✎</button>
+            <button class="tpl-del" title="删除模板" onclick="Parent.delTemplate('${p.id}')">×</button>`:""}
           </span>`).join("")}
         </div></div>`:""}
       ${this.undoneBanner(tasks)}
@@ -235,6 +236,33 @@ const Parent = {
       Store.remove("templates", tplId);   // 写墓碑，防止另一端旧快照同步复活
       route(); toast("已删除模板");
     });
+  },
+  editTemplateModal(tplId){
+    if(!this.guard())return;
+    const p=(Store.db.templates||[]).find(x=>x.id===tplId); if(!p) return;
+    const subs=["语文","数学","英语","科学","音乐","美术","体育","其他"];
+    modal("编辑常用模板", `<div class="form-grid">
+      <div class="form-row full"><label>名称 *</label><input id="te-title" maxlength="60" value="${esc(p.title||"")}"></div>
+      <div class="form-row"><label>科目</label><select id="te-subject">${subs.map(s=>`<option ${p.subject===s?"selected":""}>${s}</option>`).join("")}</select></div>
+      <div class="form-row"><label>类型</label><input id="te-type" maxlength="20" value="${esc(p.type||"练习")}"></div>
+      <div class="form-row"><label>预计分钟</label><input id="te-min" type="number" min="0" max="240" value="${p.estimated_minutes||""}"></div>
+      <div class="form-row"><label>完成得星</label><input id="te-star" type="number" min="0" max="10" value="${p.star_value!=null?p.star_value:1}"></div>
+      <div class="form-row full"><label class="check-row"><input id="te-rec" type="checkbox" ${p.need_recording?"checked":""}> 需要录音</label></div>
+      <div class="form-row full"><div class="pen-tip">修改只影响以后发布的模板，已经发布到孩子端的任务不会变。</div></div>
+    </div>`,[
+      {label:"取消",cls:"btn-ghost",fn:null},
+      {label:"保存",cls:"btn-primary",fn:()=>{
+        const title=document.getElementById("te-title").value.trim();
+        if(!title) return toast("名称不能为空"), false;
+        const min=parseInt(document.getElementById("te-min").value,10);
+        const star=parseInt(document.getElementById("te-star").value,10);
+        Object.assign(p,{ title, subject:document.getElementById("te-subject").value,
+          type:document.getElementById("te-type").value.trim()||"练习",
+          estimated_minutes:isNaN(min)?null:min, star_value:isNaN(star)?1:Math.max(0,Math.min(10,star)),
+          need_recording:document.getElementById("te-rec").checked,
+          updated_at:new Date().toISOString() });
+        Store.save(); route(); toast("模板已更新 ✎");
+      }}], true);
   },
 
   /* ---------- 模板批量发布一周 ---------- */
@@ -595,7 +623,7 @@ const Parent = {
             <div class="flex" style="flex:0 0 auto">
               <span class="tag ${t.status===STATUS.DONE?"tag-green":"tag-red"}">${t.status}</span>
               ${t.co_parent ? (t.co_done_at
-                ? `<span class="tag tag-green" title="${esc(t.co_done_by||"")} ${esc((t.co_done_at||"").slice(0,10))}">👨‍👩‍👧 已一起完成</span>`
+                ? `<span class="tag tag-green" title="${esc(t.co_done_by||"")} ${esc(fmtDateOf(t.co_done_at))}">👨‍👩‍👧 已一起完成</span>`
                 : (this.isAdmin() && t.status===STATUS.DONE ? `<button class="btn btn-outline btn-sm" title="确认和孩子共同完成了这项亲子任务" onclick="Parent.confirmCo('${t.id}')">👨‍👩‍👧 一起做了</button>` : `<span class="tag tag-orange">👨‍👩‍👧 待确认</span>`)) : ""}
               ${this.isAdmin() && t.status===STATUS.DONE ? `<button class="btn btn-outline btn-sm" title="录一段语音鼓励，孩子下次完成任务时播放" onclick="Parent.recordEncouragement('${t.id}')">🎤</button>
                 <button class="btn btn-red btn-sm" onclick="Parent.rejectModal('${t.id}')">退回重做</button>`:""}
@@ -743,7 +771,7 @@ const Parent = {
     /* 错题指标（D-4） */
     const weekDates=rows.map(r=>r.date);
     const mistakeOpen=Store.getMistakes().length;
-    const mistakeNew=(Store.db.mistakes||[]).filter(m=>weekDates.includes((m.created_at||"").slice(0,10))).length;
+    const mistakeNew=(Store.db.mistakes||[]).filter(m=>weekDates.includes(fmtDateOf(m.created_at))).length;
     if(mistakeOpen >= 5) insights.push(`错题本已有 ${mistakeOpen} 题未消化，建议周末安排一次重练`);
     else if(mistakeNew > 0 && mistakeOpen === 0) insights.push(`本周新错题 ${mistakeNew} 题已全部消化 👏`);
     /* 亲子任务（D-3） */
@@ -977,7 +1005,7 @@ const Parent = {
     const pendHtml=pending.map(r=>`<div class="redemption-item">
       <div style="font-size:26px">${r.reward_icon||"🎁"}</div>
       <div class="ri-main"><b>${esc(r.reward_name)}</b>
-        <div class="small muted mt8">${r.cost}⭐ · ${(r.requested_at||"").slice(5,16).replace("T"," ")} 孩子申请</div></div>
+        <div class="small muted mt8">${r.cost}⭐ · ${fmtTime(r.requested_at)} 孩子申请</div></div>
       ${this.isAdmin()?`<div class="flex">
         <button class="btn btn-green btn-sm" onclick="Parent.decideRedemption('${r.id}',true)">✓ 已兑现（扣 ${r.cost}⭐）</button>
         <button class="btn btn-red btn-sm" onclick="Parent.denyRedemption('${r.id}')">拒绝</button></div>`
@@ -986,13 +1014,13 @@ const Parent = {
     const histRows=history.map(r=>`<tr>
       <td>${r.reward_icon||"🎁"} ${esc(r.reward_name)}</td><td>${r.cost}⭐</td>
       <td>${r.status==="fulfilled"?'<span class="tag tag-green">已兑现</span>':'<span class="tag tag-red">未通过</span>'}${r.note?`<div class="small muted">${esc(r.note)}</div>`:""}</td>
-      <td class="muted small">${(r.decided_at||"").slice(5,16).replace("T"," ")}</td></tr>`).join("");
+      <td class="muted small">${fmtTime(r.decided_at)}</td></tr>`).join("");
     const pens=Store.penalties();
     const penRows=pens.map(e=>`<tr>
       <td><b class="pen-amount">−${Math.abs(Number(e.delta)||0)} ⭐</b></td>
       <td><b>${esc(e.note||"（未填原因）")}</b>${e.by?`<div class="small muted">${esc(e.by)} 记录</div>`:""}</td>
       <td>${e.seen_at?'<span class="tag tag-green">孩子已看</span>':'<span class="tag tag-orange">孩子未读</span>'}</td>
-      <td class="muted small">${(e.created_at||"").slice(5,16).replace("T"," ")}</td></tr>`).join("");
+      <td class="muted small">${fmtTime(e.created_at)}</td></tr>`).join("");
     return `<div class="page page-narrow">
       <div class="flex-between">
         <div><div class="page-title">奖励管理</div>
@@ -1123,13 +1151,13 @@ const Parent = {
         <b>${esc(m.title)}</b></label>${m.reason?`<div class="small muted">${esc(m.reason)}</div>`:""}</td>
       <td>${esc(m.subject)}</td>
       <td>${m.mastered_count>=1?`<span class="tag tag-green">✔ ${m.mastered_count} 次</span>`:'<span class="tag tag-gray">未重练</span>'}</td>
-      <td class="muted small">${(m.created_at||"").slice(5,10)}</td>
+      <td class="muted small">${fmtDateOf(m.created_at).slice(5)}</td>
       <td>${this.isAdmin()?`<button class="btn btn-red btn-sm" onclick="Parent.delMistake('${m.id}')">删除</button>`:""}</td>
     </tr>`).join("");
     const archRows=archived.map(m=>`<tr class="muted">
       <td>${esc(m.title)}</td><td>${esc(m.subject)}</td>
       <td><span class="tag tag-green">已掌握（2 次做对）</span></td>
-      <td class="small">${(m.updated_at||"").slice(5,10)}</td><td></td></tr>`).join("");
+      <td class="small">${fmtDateOf(m.updated_at).slice(5)}</td><td></td></tr>`).join("");
     return `<div class="page page-narrow">
       <div class="flex-between">
         <div><div class="page-title">错题本</div>
@@ -1314,7 +1342,11 @@ const Parent = {
       <td>${(h.weekdays||[]).map(w=>"一二三四五六日"[w-1]).join("、")}</td>
       <td>${h.linked_timetable?"显示明日课表":"-"}</td>
       <td>${h.star_enabled?"⭐":"-"}</td>
-      <td>${this.isAdmin()?`<button class="btn btn-sm ${h.active?"btn-red":"btn-green"}" onclick="Parent.toggleHabit('${h.id}')">${h.active?"停用":"启用"}</button>`:(h.active?"启用中":"已停用")}</td>
+      <td>${h.active===false?'<span class="tag tag-gray">已停用</span>':'<span class="tag tag-green">启用中</span>'}</td>
+      <td>${this.isAdmin()?`<div class="flex" style="gap:6px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-sm" onclick="Parent.habitModal('${h.id}')">✎ 编辑</button>
+        <button class="btn btn-sm ${h.active?"btn-red":"btn-green"}" onclick="Parent.toggleHabit('${h.id}')">${h.active?"停用":"启用"}</button>
+        <button class="btn btn-ghost btn-sm" onclick="Parent.delHabit('${h.id}')">删除</button></div>`:"-"}</td>
     </tr>`).join("");
     return `<div class="page">
       <div class="flex-between">
@@ -1322,8 +1354,9 @@ const Parent = {
         ${this.isAdmin()?`<button class="btn btn-primary" onclick="Parent.newHabitModal()">+ 新建习惯</button>`:""}
       </div>
       <div class="card" style="padding:0;overflow:hidden"><table class="grid">
-        <thead><tr><th>习惯</th><th>提醒时间</th><th>每周几</th><th>课表联动</th><th>得星</th><th>状态</th></tr></thead>
-        <tbody>${rows}</tbody></table></div>
+        <thead><tr><th>习惯</th><th>提醒时间</th><th>每周几</th><th>课表联动</th><th>得星</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>${rows||`<tr><td colspan="7"><div class="empty-tip">还没有习惯任务，点右上角新建</div></td></tr>`}</tbody></table></div>
+      <div class="small muted mt12">编辑后会同步更新今天尚未完成的同名任务；删除只影响模板和今天未开始的实例，已完成记录保留。</div>
     </div>`;
   },
   toggleHabit(id){
@@ -1342,36 +1375,60 @@ const Parent = {
     }
     Store.save(); route();
   },
-  newHabitModal(){
+  newHabitModal(){ return this.habitModal(null); },
+  /* 新建 / 编辑共用一套表单；编辑时同步今天未完成的实例 */
+  habitModal(id){
     if(!this.guard())return;
-    modal("新建习惯任务", `<div class="form-grid">
-      <div class="form-row full"><label>名称 *</label><input id="hb-name" placeholder="如：整理书桌"></div>
-      <div class="form-row"><label>图标</label><select id="hb-icon">${["🎒","🪥","🧸","📚","🛏️","👟","🍎"].map(i=>`<option>${i}</option>`).join("")}</select></div>
-      <div class="form-row"><label>提醒时间</label><input id="hb-time" type="time" value="20:00"></div>
-      <div class="form-row"><label>假期提醒时间（可选）</label><input id="hb-vtime" type="time" placeholder="不填=沿用日常"></div>
-      <div class="form-row full"><label>每周几</label><div class="weekday-picks" id="hb-weekdays">${[1,2,3,4,5,6,7].map(w=>`<button type="button" data-w="${w}" class="${w<=5?"on":""}" onclick="this.classList.toggle('on')">${"一二三四五六日"[w-1]}</button>`).join("")}</div></div>
-      <div class="form-row full"><label>检查清单（每行一项）</label><textarea id="hb-check" rows="3"></textarea></div>
+    const h=id?(Store.db.habits||[]).find(x=>x.id===id):null;
+    if(id&&!h) return toast("习惯不存在或已被删除");
+    const days=h&&h.weekdays?h.weekdays:[1,2,3,4,5];
+    const icons=["🎒","🪥","🧸","📚","🛏️","👟","🍎"];
+    modal(h?"编辑习惯任务":"新建习惯任务", `<div class="form-grid">
+      <div class="form-row full"><label>名称 *</label><input id="hb-name" maxlength="40" value="${esc(h?h.name:"")}" placeholder="如：整理书桌"></div>
+      <div class="form-row"><label>图标</label><select id="hb-icon">${icons.map(i=>`<option ${h&&h.icon===i?"selected":""}>${i}</option>`).join("")}</select></div>
+      <div class="form-row"><label>提醒时间</label><input id="hb-time" type="time" value="${h?h.remind_time||"20:00":"20:00"}"></div>
+      <div class="form-row"><label>假期提醒时间（可选）</label><input id="hb-vtime" type="time" value="${h&&h.vacation_remind_time?h.vacation_remind_time:""}"></div>
+      <div class="form-row full"><label>每周几</label><div class="weekday-picks" id="hb-weekdays">${[1,2,3,4,5,6,7].map(w=>`<button type="button" data-w="${w}" class="${days.includes(w)?"on":""}" onclick="this.classList.toggle('on')">${"一二三四五六日"[w-1]}</button>`).join("")}</div></div>
+      <div class="form-row full"><label>检查清单（每行一项）</label><textarea id="hb-check" rows="3">${esc(h?(h.checklist||[]).join("\n"):"")}</textarea></div>
       <div class="form-row full">
-        <label class="check-row"><input id="hb-tt" type="checkbox"> 显示明日课表（整理书包类）</label>
-        <label class="check-row"><input id="hb-photo" type="checkbox"> 需要拍照</label>
-        <label class="check-row"><input id="hb-star" type="checkbox" checked> 完成得星</label>
-      </div></div>`,[
+        <label class="check-row"><input id="hb-tt" type="checkbox" ${h&&h.linked_timetable?"checked":""}> 显示明日课表（整理书包类）</label>
+        <label class="check-row"><input id="hb-photo" type="checkbox" ${h&&h.need_photo?"checked":""}> 需要拍照</label>
+        <label class="check-row"><input id="hb-star" type="checkbox" ${!h||h.star_enabled!==false?"checked":""}> 完成得星</label>
+      </div>
+      ${h?`<div class="form-row full"><div class="pen-tip">保存后会同步更新今天尚未完成的同名任务；已完成记录不变。</div></div>`:""}
+    </div>`,[
       {label:"取消",cls:"btn-ghost",fn:null},
       {label:"保存",cls:"btn-primary",fn:()=>{
         const name=document.getElementById("hb-name").value.trim();
         if(!name) return toast("名称不能为空"), false;
         const weekdays=[...document.querySelectorAll("#hb-weekdays button.on")].map(b=>parseInt(b.dataset.w));
         if(!weekdays.length) return toast("每周几至少选择一天"), false;
-        Store.db.habits.push({ id:uid(), name, icon:document.getElementById("hb-icon").value,
+        const patch={ name, icon:document.getElementById("hb-icon").value,
           remind_time:document.getElementById("hb-time").value||"20:00",
           vacation_remind_time:document.getElementById("hb-vtime").value||null, weekdays,
-          need_photo:document.getElementById("hb-photo").checked, need_review:false,
+          need_photo:document.getElementById("hb-photo").checked,
           star_enabled:document.getElementById("hb-star").checked,
           linked_timetable:document.getElementById("hb-tt").checked,
           checklist:document.getElementById("hb-check").value.split("\n").map(s=>s.trim()).filter(Boolean),
-          active:true });
-        Store.save(); Store.generateToday(); route(); toast("习惯已创建");
+          updated_at:new Date().toISOString() };
+        if(h){
+          Object.assign(h,patch);
+          (Store.db.tasks||[]).filter(t=>t.habit_id===h.id && t.date===todayStr() && t.status!==STATUS.DONE)
+            .forEach(t=>{ t.title=h.name; t.star_value=h.star_enabled===false?0:1; t.updated_at=patch.updated_at; });
+        }else{
+          Store.db.habits.push(Object.assign({id:uid(),active:true,need_review:false},patch));
+        }
+        Store.save(); Store.generateToday(); route(); toast(h?"习惯已更新 ✎":"习惯已创建");
       }}], true);
+  },
+  delHabit(id){
+    if(!this.guard())return;
+    const h=(Store.db.habits||[]).find(x=>x.id===id); if(!h) return;
+    confirmModal("删除习惯", `确定删除习惯「${esc(h.name)}」？<br>今天未开始的实例会一起撤下；已完成记录与历史统计保留。`, ()=>{
+      Store.remove("habits", id);   // 写墓碑，防同步复活
+      Store.generateToday();        // 兜底清扫今天未开始的实例
+      route(); toast("已删除习惯");
+    });
   },
 
   /* ---------- P6 课表管理（日常 / 假期两套方案） ---------- */
@@ -1482,6 +1539,7 @@ const Parent = {
             <option value="on" ${s.sound!==false?"selected":""}>开启（推荐）</option>
             <option value="off" ${s.sound===false?"selected":""}>关闭</option></select></div>
         <label class="check-row mt12"><input type="checkbox" ${s.eyeCare!==false?"checked":""} ${this.isAdmin()?"":"disabled"} onchange="Parent.setEyeCare(this.checked)"> 护眼节奏（孩子连续专注 20 分钟自动暂停，休息 1 分钟）</label>
+        <label class="check-row mt12"><input type="checkbox" ${s.show_timetable_card!==false?"checked":""} ${this.isAdmin()?"":"disabled"} onchange="Parent.setTimetableCard(this.checked)"> 孩子端首页显示「明日课表」大卡片（整理书包前一目了然）</label>
       </div>
       ${this.renderEncCard()}
       <div class="card"><h3>🏖 日程方案（日常 / 假期）</h3>
@@ -1569,6 +1627,7 @@ const Parent = {
   },
   setSound(v){ Store.db.settings.sound=(v==="on"); Store.save(); toast(Store.db.settings.sound?"音效已开启":"音效已关闭"); },
   setEyeCare(v){ Store.db.settings.eyeCare=v; Store.save(); toast(v?"护眼节奏已开启（20 分钟自动休息）":"护眼节奏已关闭"); },
+  setTimetableCard(v){ Store.db.settings.show_timetable_card=v; Store.save(); toast(v?"已开启孩子端明日课表卡片":"已关闭孩子端明日课表卡片"); },
   setSchedule(mode){
     if(!this.guard())return;
     Store.setScheduleMode(mode);

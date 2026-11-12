@@ -251,8 +251,8 @@ const AI = {
         <td><b>${esc(t.name)}</b><div class="small muted"><code>${esc(t.prefix)}…</code></div></td>
         <td>${(t.scopes || []).slice(0, 4).map(s => `<span class="scope-chip">${esc(this.scopeLabel(s))}</span>`).join("")}${(t.scopes || []).length > 4 ? `<span class="small muted">+${t.scopes.length - 4}</span>` : ""}</td>
         <td>${t.mode === "direct" ? `<span class="tag tag-orange">直接发布</span>` : `<span class="tag tag-blue">草稿</span>`}</td>
-        <td class="small">${t.last_used_at ? t.last_used_at.slice(5, 16).replace("T", " ") : "未使用"}<div class="muted">${t.calls || 0} 次调用</div></td>
-        <td class="small">${t.expires_at ? t.expires_at.slice(0, 10) : "长期"}</td>
+        <td class="small">${t.last_used_at ? fmtTime(t.last_used_at) : "未使用"}<div class="muted">${t.calls || 0} 次调用</div></td>
+        <td class="small">${t.expires_at ? fmtDateOf(t.expires_at) : "长期"}</td>
         <td>${revoked ? `<span class="tag tag-gray">已吊销</span>` : (Parent.isAdmin() ? `<button class="btn btn-red btn-sm" onclick="AI.revoke('${t.id}')">吊销</button>` : "")}</td>
       </tr>`;
     }).join("");
@@ -265,7 +265,7 @@ const AI = {
 
   renderAudit() {
     const rows = this.audit.slice(0, 12).map(e => `<tr>
-      <td class="small">${(e.ts || "").slice(5, 16).replace("T", " ")}</td>
+      <td class="small">${fmtTime(e.ts)}</td>
       <td class="small">${e.channel === "mcp" ? "MCP" : "后台"}</td>
       <td class="small"><b>${esc(e.action || "")}</b>${e.summary ? `<div class="muted">${esc(e.summary)}</div>` : ""}</td>
       <td class="small">${esc(e.token_name || "-")}</td>

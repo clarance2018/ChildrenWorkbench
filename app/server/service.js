@@ -20,6 +20,12 @@ function todayStr() { return fmtDate(new Date()); }
 function addDays(dateStr, n) { const d = new Date(dateStr + "T12:00:00"); d.setDate(d.getDate() + n); return fmtDate(d); }
 function weekdayOf(dateStr) { const w = new Date(dateStr + "T12:00:00").getDay(); return w === 0 ? 7 : w; }
 function isDateStr(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) && !isNaN(new Date(s + "T12:00:00").getTime()); }
+/* UTC ISO → 本地日期（服务端与浏览器同处 GMT+8；直接 slice(0,10) 会在 00:00~08:00 错一天） */
+function localDateOf(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? String(iso).slice(0, 10) : fmtDate(d);
+}
 
 function normalizeTask(input, opts) {
   const o = opts || {};
@@ -467,7 +473,7 @@ function createService({ getState, save, dataDir, storage }) {
     const done = days.reduce((s, d) => s + d.done, 0);
     const st = getState();
     const mistakes = (st.mistakes || []).filter(m => !m.archived);
-    const newMistakes = (st.mistakes || []).filter(m => (m.created_at || "").slice(0, 10) >= startDate);
+    const newMistakes = (st.mistakes || []).filter(m => localDateOf(m.created_at) >= startDate);
     return {
       ok: true, start: startDate, end,
       total, done, completion_rate: total ? Math.round(done / total * 100) : 0,
@@ -479,7 +485,7 @@ function createService({ getState, save, dataDir, storage }) {
       points: {
         earned_total: (st.points && st.points.earned_total) || 0,
         available: (st.points && st.points.total) || 0,
-        week_stars: ((st.points && st.points.log) || []).filter(l => l.delta > 0 && (l.created_at || "").slice(0, 10) >= startDate).reduce((s, l) => s + l.delta, 0)
+        week_stars: ((st.points && st.points.log) || []).filter(l => l.delta > 0 && localDateOf(l.created_at) >= startDate).reduce((s, l) => s + l.delta, 0)
       },
       streak_days: (st.streak && st.streak.days) || 0,
       rejected_this_week: (st.tasks || []).filter(t => t.status === "孩子已退回" || t.status === "已退回").filter(t => t.date >= startDate && t.date <= end).length,

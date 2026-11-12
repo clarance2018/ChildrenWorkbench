@@ -6,10 +6,16 @@ const Child = {
         mediaRecorder:null, recChunks:[], recStartAt:0, recording:false, warned:false },
 
   subjectIcon(s){
-    return {"语文":"📖","数学":"📐","英语":"🔤","音乐":"🎵","体育":"🏃","美术":"🎨","科学":"🔬","习惯":"🧩","其他":"📌"}[s]||"📌";
+    const m={"语文":"📖","数学":"📐","英语":"🔤","音乐":"🎵","体育":"🏃","美术":"🎨","科学":"🔬","习惯":"🧩","其他":"📌"};
+    if(m[s]) return m[s];
+    const k=Object.keys(m).find(x=>String(s||"").includes(x));
+    return k?m[k]:"📌";
   },
   subjectBg(s){
-    return {"语文":"#fee2e2","数学":"#dbeafe","英语":"#ede9fe","音乐":"#fce7f3","体育":"#dcfce7","美术":"#fef3c7","科学":"#ccfbf1","习惯":"#ffedd5","其他":"#f3f4f6"}[s]||"#f3f4f6";
+    const m={"语文":"#fee2e2","数学":"#dbeafe","英语":"#ede9fe","音乐":"#fce7f3","体育":"#dcfce7","美术":"#fef3c7","科学":"#ccfbf1","习惯":"#ffedd5","其他":"#f3f4f6"};
+    if(m[s]) return m[s];
+    const k=Object.keys(m).find(x=>String(s||"").includes(x));
+    return k?m[k]:"#f3f4f6";
   },
   habitOf(t){ return t.habit_id ? Store.db.habits.find(h=>h.id===t.habit_id) : null; },
 
@@ -40,6 +46,38 @@ const Child = {
       html += `<div class="kiosk-dot" id="kiosk-dot" onpointerdown="Child.kioskPress(event)">退出</div>`;
     }
     return html;
+  },
+
+  /* ---------- 明日课表大卡（整理书包前一眼看清） ---------- */
+  renderTomorrowCard(){
+    if((Store.db.settings||{}).show_timetable_card===false) return "";
+    const tm=Store.getTimetable(tomorrowStr());
+    const subs=tm.subjects||[];
+    if(!subs.length && !tm.notes) return "";
+    const bag=(Store.getTodayTasks()||[]).find(t=>{
+      const h=this.habitOf(t); return h && h.linked_timetable && t.status!==STATUS.DONE;
+    });
+    const open=localStorage.getItem("hw_tt_open")!=="0";
+    return `<div class="tt-card">
+      <div class="tt-head" onclick="Child.toggleTimetableCard()">
+        <span class="tt-icon">📅</span>
+        <span class="tt-title"><b>明天（${dateCn(tomorrowStr())}）要带的书</b>
+          <span>照着课表整理书包，别落下课本</span></span>
+        <span class="tt-toggle">${open?"收起 ∧":"展开 ∨"}</span>
+      </div>
+      <div class="tt-body ${open?"":"hidden"}" id="tt-card-body">
+        <div class="tt-subjects">${subs.length?subs.map((s,i)=>`<span class="tt-sub" style="background:${this.subjectBg(s)}">
+          <i>${i+1}</i>${this.subjectIcon(s)} ${esc(s)}</span>`).join(""):'<span class="small muted">明天没有课</span>'}</div>
+        ${tm.notes?`<div class="tt-note">📝 ${this.maybeRuby(tm.notes)}</div>`:""}
+        ${bag?`<button class="btn btn-primary mt12" onclick="location.hash='#/child/task/${bag.id}'">🎒 去整理书包 →</button>`:""}
+      </div>
+    </div>`;
+  },
+  toggleTimetableCard(){
+    const body=document.getElementById("tt-card-body"); if(!body) return;
+    const hidden=body.classList.toggle("hidden");
+    localStorage.setItem("hw_tt_open",hidden?"0":"1");
+    const t=document.querySelector(".tt-toggle"); if(t) t.textContent=hidden?"展开 ∨":"收起 ∧";
   },
 
   /* ---------- K1 今日工作台（作业 / 任务分组） ---------- */
@@ -133,6 +171,7 @@ const Child = {
         </div>
       </div>
       <div class="small muted" style="text-align:center;margin:-6px 0 12px">已完成 ${done} / ${tasks.length}${tasks.length-done?` · 还差 ${tasks.length-done} 项，加油！`:" · 太棒了！"}</div>
+      ${this.renderTomorrowCard()}
       <div class="filter-chips">
         <button class="${filter==="all"?"on":""}" onclick="Child.setFilter('all')">全部 ${tasks.length}</button>
         <button class="${filter==="homework"?"on":""}" onclick="Child.setFilter('homework')">📘 作业 ${homework.length}</button>
@@ -566,7 +605,7 @@ const Child = {
     modal("💬 爸爸妈妈想跟你说", list.map(e=>`
       <div class="pen-item">
         <div class="pi-top"><b class="pen-amount">−${Math.abs(Number(e.delta)||0)} ⭐</b>
-          <span class="muted small">${(e.created_at||"").slice(5,16).replace("T"," ")} · ${esc(e.by||"家长")}</span></div>
+          <span class="muted small">${fmtTime(e.created_at)} · ${esc(e.by||"家长")}</span></div>
         <div class="pi-reason">${this.maybeRuby(e.note||"（没有写原因）")}</div>
       </div>`).join("") +
       `<div class="pen-foot">做错了没关系 🌱 知道错在哪里，下次改过来，星星还能一颗颗挣回来！</div>`,
@@ -608,7 +647,7 @@ const Child = {
     const mine=Store.getRedemptions().slice(0,10).map(r=>`<tr>
       <td>${r.reward_icon||"🎁"} ${esc(r.reward_name)}</td><td>${r.cost}⭐</td>
       <td>${r.status==="pending"?'<span class="tag tag-orange">等家长确认</span>':r.status==="fulfilled"?'<span class="tag tag-green">已兑现 🎉</span>':`<span class="tag tag-red">未通过</span>${r.note?`<div class="small muted">${esc(r.note)}</div>`:""}`}</td>
-      <td class="muted small">${(r.requested_at||"").slice(5,16).replace("T"," ")}</td></tr>`).join("");
+      <td class="muted small">${fmtTime(r.requested_at)}</td></tr>`).join("");
 
     const pens=Store.penalties();
     const unread=Store.unreadPenalties();
@@ -617,7 +656,7 @@ const Child = {
         ${pens.length?`<button class="btn btn-ghost btn-sm" onclick="Child.openPenalties(true)">查看全部</button>`:""}</div>
       ${pens.length?pens.slice(0,5).map(e=>`<div class="pen-item compact">
         <div class="pi-top"><b class="pen-amount">−${Math.abs(Number(e.delta)||0)} ⭐</b>
-          <span class="muted small">${(e.created_at||"").slice(5,16).replace("T"," ")}</span></div>
+          <span class="muted small">${fmtTime(e.created_at)}</span></div>
         <div class="pi-reason">${this.maybeRuby(e.note||"（没有写原因）")}</div>
       </div>`).join(""):`<div class="small muted mt8">还没有扣分记录。星星靠完成任务一颗颗挣，做错事时爸爸妈妈会写清楚原因告诉你。</div>`}
       ${unread.length?`<button class="btn btn-outline btn-sm mt12" onclick="Child.openPenalties()">我知道了（标记已读）</button>`:""}
@@ -630,7 +669,7 @@ const Child = {
       return `<tr${isPen?' class="row-penalty"':''}><td>${l.delta>0?`+${l.delta} ⭐`:`${l.delta} ⭐`}</td>
         <td>${isPen?esc(l.note||"做错事扣分"):esc(t?t.title:(l.reason==="redeem"?"兑换奖励":"（任务已删除）"))}</td>
         <td>${isPen?'<span class="tag tag-red">做错事扣分</span>':({complete:"完成任务",undo:"撤销完成",revoke_reject:"家长退回",redeem:"兑换奖励"}[l.reason]||l.reason)}</td>
-        <td class="muted small">${(l.created_at||"").slice(5,16).replace("T"," ")}</td></tr>`;
+        <td class="muted small">${fmtTime(l.created_at)}</td></tr>`;
     }).join("");
 
     return `<div class="child-shell">

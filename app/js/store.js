@@ -21,6 +21,22 @@ function weekdayCn(w){ return ["","周一","周二","周三","周四","周五","
 function dateCn(dateStr){ const d=new Date(dateStr+"T12:00:00"); return `${d.getMonth()+1}月${d.getDate()}日 ${weekdayCn(weekdayOf(dateStr))}`; }
 function fmtSec(s){ s=Math.max(0,Math.floor(s)); const m=Math.floor(s/60), ss=s%60, h=Math.floor(m/60);
   return h>0? `${h}:${String(m%60).padStart(2,"0")}:${String(ss).padStart(2,"0")}` : `${String(m).padStart(2,"0")}:${String(ss).padStart(2,"0")}`; }
+/* UTC ISO 字符串 → 本地时间显示（GMT+8）。服务端统一存 UTC，前端直接 slice 会差 8 小时，
+ * 一律走这里交给浏览器按本地时区解析。挂到 globalThis 以便测试桩 eval 加载后也能调用。 */
+function fmtTime(iso){
+  if(!iso) return "";
+  const d=new Date(iso);
+  if(isNaN(d.getTime())) return String(iso).slice(5,16).replace("T"," ") || String(iso);
+  const p=n=>String(n).padStart(2,"0");
+  return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function fmtDateOf(iso){
+  if(!iso) return "";
+  const d=new Date(iso);
+  if(isNaN(d.getTime())) return String(iso).slice(0,10);
+  return fmtDate(d);   /* 按本地时区取日期，避免 00:00~08:00 错一天 */
+}
+if(typeof globalThis!=="undefined"){ globalThis.fmtTime=fmtTime; globalThis.fmtDateOf=fmtDateOf; }
 
 const Store = {
   db:null, version:0, remote:false, _timer:null, _writing:false, onRemoteSync:null,
