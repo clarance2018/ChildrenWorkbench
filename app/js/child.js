@@ -48,9 +48,47 @@ const Child = {
     return html;
   },
 
+  /* ---------- B：调课变化提醒（已读状态存本机，不需要回写服务端） ---------- */
+  timetableChanged(){
+    const at=(Store.db.settings||{}).timetable_updated_at;
+    return !!at && localStorage.getItem("hw_tt_seen_at")!==at;
+  },
+  renderTimetableChange(){
+    if(!this.timetableChanged()) return "";
+    return `<div class="tt-change">
+      <span class="tc-icon">🔔</span>
+      <span class="tc-main"><b>明天课表有变化</b>
+        <span>爸爸妈妈刚更新了课表，看看明天要带什么书</span></span>
+      <button class="btn btn-outline btn-sm" onclick="Child.dismissTimetableChange(true)">看看课表</button>
+      <button class="btn btn-ghost btn-sm tc-close" onclick="Child.dismissTimetableChange(false)">×</button>
+    </div>`;
+  },
+  dismissTimetableChange(show){
+    localStorage.setItem("hw_tt_seen_at",(Store.db.settings||{}).timetable_updated_at||"");
+    if(show) localStorage.setItem("hw_tt_open","1");
+    route();
+  },
+
+  /* ---------- F：明日课表语音播报 ---------- */
+  tomorrowSpeech(){
+    const tm=Store.getTimetable(tomorrowStr());
+    const uniq=[...new Set((tm.subjects||[]).map(s=>String(s||"").trim()).filter(Boolean))];
+    let s=uniq.length?`明天有${uniq.join("、")}课`:"明天没有课";
+    if(tm.notes) s+=`，记得${tm.notes}`;
+    const kit=Store.kitEnabled()?Store.kitForSubjects(tm.subjects||[]):[];
+    if(kit.length) s+=`，要带${kit.slice(0,6).join("、")}`;
+    return s+"。该整理书包啦";
+  },
+  speakTomorrow(){
+    if(typeof Remind!=="undefined" && Remind.speak){
+      Remind.speak(this.tomorrowSpeech()); Sound.pop(); toast("🔊 正在读明日课表");
+    }else toast("当前浏览器不支持语音播报");
+  },
+
   /* ---------- 明日课表大卡（整理书包前一眼看清） ---------- */
   renderTomorrowCard(){
-    if((Store.db.settings||{}).show_timetable_card===false) return "";
+    const s=Store.db.settings||{};
+    if(s.show_timetable_card===false) return "";
     const tm=Store.getTimetable(tomorrowStr());
     const subs=tm.subjects||[];
     if(!subs.length && !tm.notes) return "";
@@ -58,6 +96,9 @@ const Child = {
       const h=this.habitOf(t); return h && h.linked_timetable && t.status!==STATUS.DONE;
     });
     const open=localStorage.getItem("hw_tt_open")!=="0";
+    const kit=Store.kitEnabled()?Store.kitForSubjects(subs):[];
+    const kitHtml=kit.length?`<div class="tt-kit">🎒 要带：${kit.map(x=>`<span>${esc(x)}</span>`).join("")}</div>`:"";
+    const speakBtn=s.tt_speak!==false?`<button class="btn btn-outline btn-sm" onclick="Child.speakTomorrow()">🔊 读给我听</button>`:"";
     return `<div class="tt-card">
       <div class="tt-head" onclick="Child.toggleTimetableCard()">
         <span class="tt-icon">📅</span>
@@ -66,10 +107,14 @@ const Child = {
         <span class="tt-toggle">${open?"收起 ∧":"展开 ∨"}</span>
       </div>
       <div class="tt-body ${open?"":"hidden"}" id="tt-card-body">
-        <div class="tt-subjects">${subs.length?subs.map((s,i)=>`<span class="tt-sub" style="background:${this.subjectBg(s)}">
-          <i>${i+1}</i>${this.subjectIcon(s)} ${esc(s)}</span>`).join(""):'<span class="small muted">明天没有课</span>'}</div>
+        <div class="tt-subjects">${subs.length?subs.map((s2,i)=>`<span class="tt-sub" style="background:${this.subjectBg(s2)}">
+          <i>${i+1}</i>${this.subjectIcon(s2)} ${esc(s2)}</span>`).join(""):'<span class="small muted">明天没有课</span>'}</div>
         ${tm.notes?`<div class="tt-note">📝 ${this.maybeRuby(tm.notes)}</div>`:""}
-        ${bag?`<button class="btn btn-primary mt12" onclick="location.hash='#/child/task/${bag.id}'">🎒 去整理书包 →</button>`:""}
+        ${kitHtml}
+        <div class="flex mt12" style="flex-wrap:wrap;gap:8px">
+          ${bag?`<button class="btn btn-primary" onclick="location.hash='#/child/task/${bag.id}'">🎒 去整理书包 →</button>`:""}
+          ${speakBtn}
+        </div>
       </div>
     </div>`;
   },
@@ -78,6 +123,26 @@ const Child = {
     const hidden=body.classList.toggle("hidden");
     localStorage.setItem("hw_tt_open",hidden?"0":"1");
     const t=document.querySelector(".tt-toggle"); if(t) t.textContent=hidden?"展开 ∨":"收起 ∧";
+  },
+
+  /* ---------- A：整理书包任务的动态清单（按明日课表实时算，勾选按物品名保存） ---------- */
+  bagItems(t){
+    const h=this.habitOf(t);
+    if(!h || !h.linked_timetable || !Store.kitEnabled()) return [];
+    return Store.bagChecklist(h, tomorrowStr());
+  },
+  bagChecks(t){ return (t && t.kit_checks && typeof t.kit_checks==="object") ? t.kit_checks : {}; },
+  bagRemaining(t){
+    const items=this.bagItems(t); if(!items.length) return 0;
+    const c=this.bagChecks(t);
+    return items.filter(x=>!c[x]).length;
+  },
+  toggleKitCheck(id,i,v){
+    const t=Store.getTask(id); if(!t) return;
+    const items=this.bagItems(t); const name=items[i]; if(name==null) return;
+    t.kit_checks=this.bagChecks(t); t.kit_checks[name]=!!v;
+    t.updated_at=new Date().toISOString();   /* 勾选状态跨端合并时胜出 */
+    Store.save(); Sound.pop(); route();
   },
 
   /* ---------- K1 今日工作台（作业 / 任务分组） ---------- */
@@ -104,23 +169,29 @@ const Child = {
     const habits  = tasks.filter(t=>t.category==="习惯").sort(sortFn);
     const filter = this.filter||"all";
 
-    const group = (title, sub, list, kind)=>{
+    const group = (title, sub, list, kind, extraCls)=>{
       if(!list.length) return "";
-      return `<div class="group-head"><div class="g-title">${title}<span class="g-sub">${sub}</span></div></div>
+      return `<div class="group-head ${extraCls||""}"><div class="g-title">${title}<span class="g-sub">${sub}</span></div></div>
         ${list.map(t=>this.taskCard(t, isPinned(t), kind)).join("")}`;
     };
+    /* D：习惯任务按「早晨 / 放学后 / 睡前」分组，到点自动置顶 */
+    const slots=[["morning","🌅 早晨","11 点前"],["after","🏫 放学后","11:00–18:00"],["night","🌙 睡前","18 点后"]];
+    const habitGroups = slots.map(([key,label,range])=>{
+      const list=habits.filter(t=>Store.habitSlot(this.habitOf(t))===key).sort(sortFn);
+      return group(label, `${range} · 已完成 ${list.filter(t=>t.status===STATUS.DONE).length}/${list.length}`, list, "habit", `slot-head slot-${key}`);
+    }).join("");
     const cards =
       (filter==="habit" ? "" : group("📘 今日作业", `已完成 ${homework.filter(t=>t.status===STATUS.DONE).length}/${homework.length}`, homework, "homework")) +
-      (filter==="homework" ? "" : group("🧩 习惯任务", `已完成 ${habits.filter(t=>t.status===STATUS.DONE).length}/${habits.length}`, habits, "habit"));
+      (filter==="homework" ? "" : habitGroups);
 
     const note = Store.db.notes[todayStr()];
     const usePinyin = Store.db.settings.gradeMode===1 && Store.db.settings.pinyin;
     const noteHtml = (note && note.show_to_child && note.note) ? `
       <div class="note-card">
         <div class="note-head" onclick="document.getElementById('note-body').classList.toggle('hidden')">
-          <span>📌 今日备注</span><span class="muted small">点击展开/收起</span>
+          <span>📌 今日备注</span><span class="muted small">点击展开看内容</span>
         </div>
-        <div class="note-body" id="note-body">${(usePinyin && note.pinyin_enabled) ? toRuby(note.note) : esc(note.note).replace(/\n/g,"<br>")}</div>
+        <div class="note-body hidden" id="note-body">${(usePinyin && note.pinyin_enabled) ? toRuby(note.note) : esc(note.note).replace(/\n/g,"<br>")}</div>
       </div>`:"";
 
     const expired = Store.expiredYesterday();
@@ -138,11 +209,17 @@ const Child = {
     const modeTag = Store.db.settings.scheduleMode==="vacation" ? " · 🏖 假期模式" : "";
     const unreadPen = Store.unreadPenalties ? Store.unreadPenalties() : [];
 
+    /* E：横屏时左任务右课表（两栏），竖屏靠 order 把课表卡放回 hero 与任务之间 */
     return `<div class="child-shell">
       <div class="child-header">
         <div class="child-date">${dateCn(todayStr())}${modeTag}</div>
         <button class="kiosk-fab" onclick="Child.toggleKiosk()">${kioskOn?"🔓 退出专注":"🖥 专注模式"}</button>
       </div>
+      <div class="child-col-side">
+        ${this.renderTimetableChange()}
+        ${this.renderTomorrowCard()}
+      </div>
+      <div class="child-col-main">
       ${noteHtml}
       ${unreadPen.length?`<button class="pen-banner" onclick="Child.openPenalties()">
         <span class="pb-icon">💬</span>
@@ -155,7 +232,7 @@ const Child = {
         <div class="cc-title">今天的任务全部完成！</div>
         <div class="cc-sub">已连续完成 ${Store.db.streak.days} 天 · 今天获得 ${tasks.reduce((s,t)=>s+(t.star_awarded||0),0)} ⭐<br>去「奖励」看看可以兑换什么吧</div>
       </div>`:""}
-      ${expired.length?`<div class="note-card" style="background:#f8fafc;border-color:#e5e7eb">
+      ${expired.length?`<div class="note-card expired-tip" style="background:#f8fafc;border-color:#e5e7eb">
         <div class="small muted">昨天有 ${expired.length} 项没完成，已自动归档。今天继续加油 💪</div></div>`:""}
       <div class="child-hero">
         <div class="hero-ring" style="background:conic-gradient(#3b82f6 ${pct}%, #e6ebf3 0)">
@@ -170,17 +247,17 @@ const Child = {
           ${unplayedEnc.length?`<button class="hero-stat hero-mail" onclick="Child.openMailbox()"><b>📮 ${unplayedEnc.length}</b><span>爸妈的话</span></button>`:""}
         </div>
       </div>
-      <div class="small muted" style="text-align:center;margin:-6px 0 12px">已完成 ${done} / ${tasks.length}${tasks.length-done?` · 还差 ${tasks.length-done} 项，加油！`:" · 太棒了！"}</div>
-      ${this.renderTomorrowCard()}
+      <div class="hero-subline small muted" style="text-align:center;margin:-6px 0 12px">已完成 ${done} / ${tasks.length}${tasks.length-done?` · 还差 ${tasks.length-done} 项，加油！`:" · 太棒了！"}</div>
       <div class="filter-chips">
         <button class="${filter==="all"?"on":""}" onclick="Child.setFilter('all')">全部 ${tasks.length}</button>
         <button class="${filter==="homework"?"on":""}" onclick="Child.setFilter('homework')">📘 作业 ${homework.length}</button>
         <button class="${filter==="habit"?"on":""}" onclick="Child.setFilter('habit')">🧩 任务 ${habits.length}</button>
       </div>
-      ${cards || `<div class="card"><div class="empty-tip">这里还没有内容，等爸爸妈妈发布哦～</div></div>`}
-      <div class="small muted" style="text-align:center;margin-top:18px;line-height:1.9">
+      ${cards || `<div class="card child-empty"><div class="empty-tip">这里还没有内容，等爸爸妈妈发布哦～</div></div>`}
+      <div class="child-footer small muted" style="text-align:center;margin-top:18px;line-height:1.9">
         🔔 到点提醒：${notifyState}${/未开启|不支持/.test(notifyState)?` · <a href="javascript:Remind.askPermission()">开启通知</a>`:""}
         ${kioskOn?" · 专注模式已开启（长按左上角 1.5 秒退出）":""}
+      </div>
       </div>
     </div>`;
   },
@@ -341,16 +418,25 @@ const Child = {
 
   execHabitBody(t){
     const h=this.habitOf(t)||{};
+    /* A：整理书包类习惯 → 按明日课表动态生成清单；勾选状态按物品名保存，课表变了也不会错位 */
+    const dyn=this.bagItems(t);
+    const items=dyn.length?dyn:(h.checklist||[]);
     if(!Array.isArray(t.checks)) t.checks=(h.checklist||[]).map(()=>false);
+    const checks=this.bagChecks(t);
     const tmw = h.linked_timetable ? Store.getTimetable(tomorrowStr()) : null;
-    const cl = (h.checklist||[]).map((c,i)=>`
-      <label class="check-row ${t.checks[i]?"done-row":""}">
-        <input type="checkbox" ${t.checks[i]?"checked":""} onchange="Child.toggleCheck('${t.id}',${i},this.checked)">
+    const cl = items.map((c,i)=>{
+      const done = dyn.length ? !!checks[c] : !!t.checks[i];
+      const fn = dyn.length ? `Child.toggleKitCheck('${t.id}',${i},this.checked)` : `Child.toggleCheck('${t.id}',${i},this.checked)`;
+      return `<label class="check-row ${done?"done-row":""}">
+        <input type="checkbox" ${done?"checked":""} onchange="${fn}">
         <span>${this.maybeRuby(c)}</span>
-      </label>`).join("");
+      </label>`;
+    }).join("");
+    const kitHead = dyn.length?`<div class="kit-hint">🎒 按明天课表自动生成的清单（${items.length} 项）· 全部勾好才能完成</div>`:"";
     return `
       ${Store.habitRemindTime(h)?`<div class="tag tag-orange">⏰ 提醒时间 ${Store.habitRemindTime(h)}</div>`:""}
       ${tmw?`<div class="timetable-strip mt12" style="text-align:left">📅 明日课表：${(tmw.subjects||[]).join(" / ")||"无"}${tmw.notes?`　备注：${esc(tmw.notes)}`:""}</div>`:""}
+      ${kitHead}
       <div class="checklist mt12">${cl||'<div class="empty-tip" style="padding:12px">无检查清单</div>'}</div>
         ${h.need_photo?`<div class="mt12"><label class="btn btn-outline">📷 ${Store.getPhoto(t.id)?"重新拍照":"拍照上传"}<input type="file" accept="image/*" capture="environment" class="hidden" onchange="Child.uploadPhoto('${t.id}',this)"></label>
         ${Store.getPhoto(t.id)?`<div class="mt8"><img src="${esc(Store.getPhoto(t.id))}" alt="任务照片" style="max-width:160px;border-radius:10px"><div class="small tag tag-green mt8">已上传照片 ✓</div></div>`:""}</div>`:""}
@@ -364,6 +450,9 @@ const Child = {
       if(valid<1){ disabled=true; tip="需要先录至少一段录音才能点哦"; }
     }
     if(t.status===STATUS.OVERTIME && !t.allow_continue){ disabled=true; tip="已超时且不允许继续，请找家长处理"; }
+    /* A：整理书包清单没勾完，不允许点完成 */
+    const left=this.bagRemaining(t);
+    if(left>0 && !disabled){ disabled=true; tip=`还有 ${left} 样东西没勾好，装完书包再点完成哦`; }
     return `<div class="mt16">
       <button class="btn btn-green btn-big" ${disabled?"disabled":""} onclick="Child.confirmComplete('${t.id}')">✅ 我已完成</button>
       ${tip?`<div class="small muted mt8">${tip}</div>`:""}
@@ -526,6 +615,10 @@ const Child = {
   },
   confirmComplete(id){
     const t=Store.getTask(id); if(!t) return;
+
+    /* A：动态整理书包清单没勾完，防御式拦截（按钮已禁用，这里防止绕过） */
+    const left=this.bagRemaining(t);
+    if(left>0){ Sound.overtime(); return toast(`还有 ${left} 样东西没勾好，先装好书包再完成哦`); }
 
     /* 口算练习：全部答对才算完成，错题入本 */
     if(t.drill){

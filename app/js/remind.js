@@ -77,7 +77,16 @@ const Remind = {
       const diff = hm - target;
       // 到点后 0~15 分钟内提醒一次（避免晚上才打开平板时补播一串旧提醒）
       if(diff >= 0 && diff <= 15 && this._once(`${today}:habit:${t.id}`)){
-        this.fire("habit", `该${h.name}啦`, `${h.icon||"🧩"} ${t.title}${h.checklist&&h.checklist.length?"：先做 "+h.checklist[0]:""}`, t.id);
+        let body=`${h.icon||"🧩"} ${t.title}${h.checklist&&h.checklist.length?"：先做 "+h.checklist[0]:""}`;
+        let speakText=`该${h.name}啦`;
+        /* F：整理书包类习惯到点时，把明日课表一起念出来 */
+        if(h.linked_timetable && Store.db.settings.tt_speak!==false){
+          const tm=Store.getTimetable(tomorrowStr());
+          const uniq=[...new Set((tm.subjects||[]).map(s=>String(s||"").trim()).filter(Boolean))];
+          speakText=uniq.length?`该${h.name}啦，明天有${uniq.join("、")}课${tm.notes?"，记得"+tm.notes:""}`:`该${h.name}啦，明天没有课`;
+          body+=`　📅 ${uniq.join(" / ")||"明天无课"}${tm.notes?"（"+tm.notes+"）":""}`;
+        }
+        this.fire("habit", `该${h.name}啦`, body, t.id, speakText);
       }
     });
 
@@ -105,12 +114,12 @@ const Remind = {
   },
 
   /* ---------- 触发多级提醒 ---------- */
-  fire(kind, title, body, taskId){
+  fire(kind, title, body, taskId, speakText){
     const icons = { habit:"⏰", nag:"🌙", parent:"📋", done:"🎉" };
     this.banner(icons[kind]||"🔔", title, body, taskId);
     if(kind === "habit" || kind === "nag"){
       Sound.reminder();
-      this.speak(title);
+      this.speak(speakText||title);
     }else{
       Sound.pop();
     }

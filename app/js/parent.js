@@ -1339,6 +1339,7 @@ const Parent = {
     const rows = Store.db.habits.map(h=>`<tr>
       <td><b>${h.icon} ${esc(h.name)}</b><div class="small muted">${(h.checklist||[]).join(" / ")}</div></td>
       <td>${h.remind_time}</td>
+      <td><span class="tag tag-blue">${Store.slotLabel(Store.habitSlot(h))}</span></td>
       <td>${(h.weekdays||[]).map(w=>"一二三四五六日"[w-1]).join("、")}</td>
       <td>${h.linked_timetable?"显示明日课表":"-"}</td>
       <td>${h.star_enabled?"⭐":"-"}</td>
@@ -1354,9 +1355,9 @@ const Parent = {
         ${this.isAdmin()?`<button class="btn btn-primary" onclick="Parent.newHabitModal()">+ 新建习惯</button>`:""}
       </div>
       <div class="card" style="padding:0;overflow:hidden"><table class="grid">
-        <thead><tr><th>习惯</th><th>提醒时间</th><th>每周几</th><th>课表联动</th><th>得星</th><th>状态</th><th>操作</th></tr></thead>
-        <tbody>${rows||`<tr><td colspan="7"><div class="empty-tip">还没有习惯任务，点右上角新建</div></td></tr>`}</tbody></table></div>
-      <div class="small muted mt12">编辑后会同步更新今天尚未完成的同名任务；删除只影响模板和今天未开始的实例，已完成记录保留。</div>
+        <thead><tr><th>习惯</th><th>提醒时间</th><th>时段</th><th>每周几</th><th>课表联动</th><th>得星</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>${rows||`<tr><td colspan="8"><div class="empty-tip">还没有习惯任务，点右上角新建</div></td></tr>`}</tbody></table></div>
+      <div class="small muted mt12">时段默认按提醒时间自动归类（11 点前=早晨 / 18 点前=放学后 / 之后=睡前），也可在编辑里手动指定。编辑后会同步更新今天尚未完成的同名任务；删除只影响模板和今天未开始的实例，已完成记录保留。</div>
     </div>`;
   },
   toggleHabit(id){
@@ -1388,6 +1389,9 @@ const Parent = {
       <div class="form-row"><label>图标</label><select id="hb-icon">${icons.map(i=>`<option ${h&&h.icon===i?"selected":""}>${i}</option>`).join("")}</select></div>
       <div class="form-row"><label>提醒时间</label><input id="hb-time" type="time" value="${h?h.remind_time||"20:00":"20:00"}"></div>
       <div class="form-row"><label>假期提醒时间（可选）</label><input id="hb-vtime" type="time" value="${h&&h.vacation_remind_time?h.vacation_remind_time:""}"></div>
+      <div class="form-row full"><label>孩子端分组时段</label><select id="hb-slot">
+        ${[["auto","⏱ 自动（按提醒时间）"],["morning","🌅 早晨"],["after","🏫 放学后"],["night","🌙 睡前"]].map(([v,l])=>`<option value="${v}" ${(h&&h.time_slot||"auto")===v?"selected":""}>${l}</option>`).join("")}
+      </select><div class="small muted mt8">孩子端首页会把习惯任务按「早晨 / 放学后 / 睡前」分组，到点自动置顶</div></div>
       <div class="form-row full"><label>每周几</label><div class="weekday-picks" id="hb-weekdays">${[1,2,3,4,5,6,7].map(w=>`<button type="button" data-w="${w}" class="${days.includes(w)?"on":""}" onclick="this.classList.toggle('on')">${"一二三四五六日"[w-1]}</button>`).join("")}</div></div>
       <div class="form-row full"><label>检查清单（每行一项）</label><textarea id="hb-check" rows="3">${esc(h?(h.checklist||[]).join("\n"):"")}</textarea></div>
       <div class="form-row full">
@@ -1403,9 +1407,11 @@ const Parent = {
         if(!name) return toast("名称不能为空"), false;
         const weekdays=[...document.querySelectorAll("#hb-weekdays button.on")].map(b=>parseInt(b.dataset.w));
         if(!weekdays.length) return toast("每周几至少选择一天"), false;
+        const slotEl=document.getElementById("hb-slot");
         const patch={ name, icon:document.getElementById("hb-icon").value,
           remind_time:document.getElementById("hb-time").value||"20:00",
-          vacation_remind_time:document.getElementById("hb-vtime").value||null, weekdays,
+          vacation_remind_time:document.getElementById("hb-vtime").value||null,
+          time_slot:slotEl?slotEl.value:"auto", weekdays,
           need_photo:document.getElementById("hb-photo").checked,
           star_enabled:document.getElementById("hb-star").checked,
           linked_timetable:document.getElementById("hb-tt").checked,
@@ -1445,7 +1451,7 @@ const Parent = {
     const tmwT = Store.getTimetable(tmw);
     return `<div class="page">
       <div class="page-title">课表管理 ${vac?'<span class="tag tag-orange">🏖 正在编辑假期方案</span>':'<span class="tag tag-teal">🏠 正在编辑日常方案</span>'}</div>
-      <div class="page-sub">两套方案独立保存，在「设置 · 日程方案」一键切换；临时调课仅改当天，两种方案下都生效。整理书包类习惯任务会显示「明日课表」</div>
+      <div class="page-sub">两套方案独立保存，在「设置 · 日程方案」一键切换；临时调课仅改当天，两种方案下都生效。修改后孩子端会收到「课表有变化」提醒；整理书包类习惯任务会显示「明日课表」</div>
       <div class="card"><h3>固定周课表（${vac?"假期":"日常"}）</h3>
         <table class="grid"><thead><tr><th style="width:90px">星期</th><th>科目（用 / 分隔）</th><th>备注</th></tr></thead>
         <tbody>${weekRows}</tbody></table>
@@ -1467,13 +1473,19 @@ const Parent = {
     const t=pack[w];
     if(subjectsStr!=null) t.subjects=subjectsStr.split(/[\/、,，]/).map(s=>s.trim()).filter(Boolean);
     if(notes!=null) t.notes=notes;
+    this.markTimetableChanged();
     Store.save(); toast(weekdayCn(w)+"课表已更新（"+(Store.db.settings.scheduleMode==="vacation"?"假期":"日常")+"方案）");
+  },
+  /* B：课表任何改动都打一个时间戳，孩子端据此提示「课表有变化」 */
+  markTimetableChanged(){
+    Store.db.settings.timetable_updated_at=new Date().toISOString();
   },
   copyPack(target){
     if(!this.guard())return;
     const src = target==="vacation" ? Store.db.timetable : Store.db.vacationTimetable;
     const dst = target==="vacation" ? Store.db.vacationTimetable : Store.db.timetable;
     [1,2,3,4,5,6,7].forEach(w=>{ dst[w]=JSON.parse(JSON.stringify(src[w]||{subjects:[],notes:""})); });
+    this.markTimetableChanged();
     Store.save(); route(); toast("已复制整套课表");
   },
   setOverride(){
@@ -1483,6 +1495,7 @@ const Parent = {
     const n=document.getElementById("ov-notes").value.trim();
     if(!s && !n){ delete Store.db.timetableOverrides[d]; }
     else Store.db.timetableOverrides[d]={ subjects:s?s.split(/[\/、,，]/).map(x=>x.trim()).filter(Boolean):(Store.getTimetable(d).subjects||[]), notes:n };
+    this.markTimetableChanged();
     Store.save(); route(); toast("调课已保存，明日课表将同步到孩子端");
   },
 
@@ -1503,6 +1516,58 @@ const Parent = {
   },
   toggleRule(id){ if(!this.guard())return; const r=Store.db.periodRules.find(x=>x.id===id); r.active=!r.active; Store.save(); route(); },
   delRule(id){ if(!this.guard())return; Store.remove("periodRules", id); route(); toast("已删除（今日已生成实例保留）"); },
+
+  /* A/F：科目 → 要带的物品（按明日课表自动生成整理书包清单） */
+  renderKitCard(){
+    const s=Store.db.settings, kit=s.subjectKit||{};
+    /* 课表里出现过、但还没配物品的科目也列出来，方便补齐 */
+    const used=new Set();
+    [1,2,3,4,5,6,7].forEach(w=>{
+      [Store.db.timetable,Store.db.vacationTimetable].forEach(p=>
+        ((((p||{})[w])||{}).subjects||[]).forEach(x=>used.add(String(x).trim())));
+    });
+    const keys=[...new Set([...Object.keys(kit),...[...used].filter(Boolean)])];
+    const rows=keys.map(k=>`<div class="kit-row">
+      <label>${esc(k)}</label>
+      <input data-kit="${esc(k)}" value="${esc((kit[k]||[]).join(" / "))}" placeholder="留空=这个科目不用带东西" ${this.isAdmin()?"":"disabled"}>
+    </div>`).join("");
+    const tm=Store.getTimetable(tomorrowStr());
+    const preview=Store.kitForSubjects(tm.subjects||[]);
+    return `<div class="card"><h3>🎒 科目 → 要带的物品</h3>
+      <div class="small muted">开启后，孩子端「整理书包」任务的检查清单会按<b>明日课表</b>自动生成，<b>没勾完不能点「我已完成」</b>。习惯任务里手写的检查清单仍会一并保留（可在习惯编辑里删掉重复项）。</div>
+      <label class="check-row mt12"><input type="checkbox" ${s.kitEnabled!==false?"checked":""} ${this.isAdmin()?"":"disabled"} onchange="Parent.setKitEnabled(this.checked)"> 按课表自动生成整理书包清单</label>
+      <label class="check-row mt12"><input type="checkbox" ${s.tt_speak!==false?"checked":""} ${this.isAdmin()?"":"disabled"} onchange="Parent.setTimetableSpeak(this.checked)"> 孩子端「🔊 读给我听」+ 到点语音播报明日课表</label>
+      <div class="kit-preview mt12">📅 明天（${dateCn(tomorrowStr())}）：${(tm.subjects||[]).join(" / ")||"没有课"}
+        <div class="small muted mt8">🎒 自动清单：${preview.length?esc(preview.join("、")):"（未配置这些科目的物品，或明天无课）"}</div></div>
+      <div class="kit-grid mt12">${rows||'<div class="empty-tip" style="padding:12px">还没有科目，可在下方添加</div>'}</div>
+      ${this.isAdmin()?`<div class="flex mt12" style="flex-wrap:wrap;gap:8px">
+        <button class="btn btn-primary" onclick="Parent.saveSubjectKit()">保存物品清单</button>
+        <input id="kit-new-subject" placeholder="新增科目，如：书法" style="width:150px">
+        <input id="kit-new-items" placeholder="要带的物品，用 / 分隔" style="width:230px">
+        <button class="btn btn-outline" onclick="Parent.addSubjectKit()">+ 添加科目</button>
+      </div>`:""}
+      <div class="small muted mt8">物品用 / 或 、 分隔；关掉开关则沿用习惯任务里手写的检查清单。</div>
+    </div>`;
+  },
+  saveSubjectKit(){
+    if(!this.guard())return;
+    const kit={};
+    document.querySelectorAll("input[data-kit]").forEach(el=>{
+      kit[el.dataset.kit]=String(el.value||"").split(/[\/、,，]/).map(s=>s.trim()).filter(Boolean);
+    });
+    Store.db.settings.subjectKit=kit; Store.save(); toast("科目物品清单已保存"); route();
+  },
+  addSubjectKit(){
+    if(!this.guard())return;
+    const k=(document.getElementById("kit-new-subject")||{}).value;
+    const v=(document.getElementById("kit-new-items")||{}).value;
+    const key=String(k||"").trim(); if(!key) return toast("请填写科目名称");
+    this.saveSubjectKit();
+    Store.db.settings.subjectKit[key]=String(v||"").split(/[\/、,，]/).map(s=>s.trim()).filter(Boolean);
+    Store.save(); route(); toast(`已添加科目「${key}」`);
+  },
+  setKitEnabled(v){ Store.db.settings.kitEnabled=v; Store.save(); toast(v?"已开启按课表自动生成清单":"已关闭，改用习惯里的手写清单"); },
+  setTimetableSpeak(v){ Store.db.settings.tt_speak=v; Store.save(); toast(v?"已开启课表语音播报":"已关闭课表语音播报"); },
 
   /* ---------- P9 设置 ---------- */
   renderSettings(){
@@ -1541,6 +1606,7 @@ const Parent = {
         <label class="check-row mt12"><input type="checkbox" ${s.eyeCare!==false?"checked":""} ${this.isAdmin()?"":"disabled"} onchange="Parent.setEyeCare(this.checked)"> 护眼节奏（孩子连续专注 20 分钟自动暂停，休息 1 分钟）</label>
         <label class="check-row mt12"><input type="checkbox" ${s.show_timetable_card!==false?"checked":""} ${this.isAdmin()?"":"disabled"} onchange="Parent.setTimetableCard(this.checked)"> 孩子端首页显示「明日课表」大卡片（整理书包前一目了然）</label>
       </div>
+      ${this.renderKitCard()}
       ${this.renderEncCard()}
       <div class="card"><h3>🏖 日程方案（日常 / 假期）</h3>
         <div class="small muted">切换后孩子端课表与习惯提醒时间立即按所选方案生效；「课表管理」页编辑的是当前方案的课表，习惯的假期提醒时间在新建习惯时设置（未设置则沿用日常时间）。</div>

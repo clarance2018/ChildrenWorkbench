@@ -11,6 +11,14 @@ const STATUS_TAG = {
   "已退回":"tag-red","超时":"tag-orange","已过期":"tag-gray"
 };
 
+/* A：科目 → 要带的物品（家长可在「设置 · 科目物品清单」里改） */
+const DEFAULT_SUBJECT_KIT = {
+  "语文":["语文课本","生字本"], "数学":["数学课本","口算本"], "英语":["英语课本"],
+  "体育":["运动鞋","跳绳"], "美术":["水彩笔","图画本"], "音乐":["口风琴"],
+  "科学":["科学课本"], "阅读":["课外书"]
+};
+const SLOT_LABEL = { morning:"🌅 早晨", after:"🏫 放学后", night:"🌙 睡前" };
+
 function uid(){ return "id_" + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 function todayStr(){ return fmtDate(new Date()); }
 function fmtDate(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
@@ -223,7 +231,9 @@ const Store = {
     return {
       schema_version:2,
       settings:{ gradeMode:1, pinyin:true, role:"admin", parent_pin:"1234", sound:true, encouragement:true,
-                 eyeCare:true, scheduleMode:"daily", goals:null },
+                 eyeCare:true, scheduleMode:"daily", goals:null,
+                 kitEnabled:true, tt_speak:true, show_timetable_card:true,
+                 subjectKit:Object.assign({}, DEFAULT_SUBJECT_KIT) },
       child:{ id:"child_1", name:"小宝" },
       tasks:[], periodRules:[], templates:[],
       habits:[
@@ -262,7 +272,10 @@ const Store = {
   migrate(){
     const d=this.db; d.schema_version=2;
     d.settings=Object.assign({gradeMode:1,pinyin:true,role:"admin",parent_pin:"1234",sound:true,
-      encouragement:true,eyeCare:true,scheduleMode:"daily",goals:null}, d.settings||{});
+      encouragement:true,eyeCare:true,scheduleMode:"daily",goals:null,
+      kitEnabled:true,tt_speak:true,show_timetable_card:true,timetable_updated_at:null}, d.settings||{});
+    /* 家长改过的科目保留，缺失的补默认；把某科目设为 [] 即可表示"不用带东西" */
+    d.settings.subjectKit=Object.assign({}, DEFAULT_SUBJECT_KIT, d.settings.subjectKit||{});
     d.child=d.child||{id:"child_1",name:"小宝"};
     d.templates=d.templates||[]; d.notes=d.notes||{}; d.recordings=d.recordings||{}; d.photos=d.photos||{};
     d.encouragements=d.encouragements||[];
@@ -352,6 +365,42 @@ const Store = {
     if((this.db.settings||{}).scheduleMode==="vacation" && h && h.vacation_remind_time) return h.vacation_remind_time;
     return h ? h.remind_time : null;
   },
+
+  /* ---------- A：科目 → 要带的物品，按明日课表自动生成整理书包清单 ---------- */
+  subjectKitMap(){ return (this.db.settings||{}).subjectKit||{}; },
+  kitEnabled(){
+    return (this.db.settings||{}).kitEnabled!==false && Object.keys(this.subjectKitMap()).length>0;
+  },
+  kitForSubjects(subjects){
+    const kit=this.subjectKitMap(), out=[];
+    const add=x=>{ x=String(x==null?"":x).trim(); if(x && !out.includes(x)) out.push(x); };
+    (subjects||[]).forEach(s=>{
+      const v=String(s==null?"":s).trim(); if(!v) return;
+      const key = kit[v] ? v : Object.keys(kit).find(k=>v.includes(k));
+      (key?kit[key]:[]).forEach(add);   /* 未配置的科目不猜，静默跳过 */
+    });
+    return out;
+  },
+  /* 完整清单 = 课表映射出的物品 + 习惯里手写的固定检查项（按名字去重） */
+  bagChecklist(h, dateStr){
+    const tm=this.getTimetable(dateStr||tomorrowStr());
+    const out=[];
+    const add=x=>{ x=String(x==null?"":x).trim(); if(x && !out.includes(x)) out.push(x); };
+    this.kitForSubjects(tm.subjects||[]).forEach(add);
+    ((h&&h.checklist)||[]).forEach(add);
+    return out;
+  },
+
+  /* ---------- D：习惯时段（默认按提醒时间推导，家长可手动指定） ---------- */
+  habitSlot(h){
+    if(!h) return "after";
+    if(h.time_slot && h.time_slot!=="auto" && SLOT_LABEL[h.time_slot]) return h.time_slot;
+    const rt=this.habitRemindTime(h)||"20:00";
+    const hh=parseInt(String(rt).split(":")[0],10);
+    if(isNaN(hh)) return "after";
+    return hh<11?"morning":hh<18?"after":"night";
+  },
+  slotLabel(key){ return SLOT_LABEL[key]||SLOT_LABEL.after; },
 
   /* ---------- 录音：上传服务端，失败保留本地 dataURL ---------- */
   getRecordings(taskId){ return this.db.recordings[taskId]||[]; },
