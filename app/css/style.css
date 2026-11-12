@@ -388,3 +388,33 @@ body.kiosk-on .task-card{transform:scale(1.01);}
 .heat-2{background:#60a5fa;}
 .heat-3{background:#34d399;color:#064e3b;}
 .heat-4{background:#059669;}
+
+/* ========== 扣分（做错事时）：家长端 ========== */
+.penalty-card{border-left:4px solid var(--orange);}
+.pen-amount{color:var(--red);font-variant-numeric:tabular-nums;}
+.quick-reasons{display:flex;flex-wrap:wrap;gap:6px;}
+.chip{border:1px solid var(--line);background:#f8fafc;color:var(--text2);border-radius:999px;
+  padding:5px 11px;font-size:12.5px;cursor:pointer;}
+.chip:hover{border-color:var(--orange);color:var(--orange);background:#fffbeb;}
+.pen-tip{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:10px;
+  padding:10px 12px;font-size:13px;line-height:1.6;}
+
+/* ========== 扣分：孩子端 ========== */
+.pen-banner{width:100%;display:flex;align-items:center;gap:14px;text-align:left;cursor:pointer;
+  background:linear-gradient(100deg,#fff7ed,#ffedd5);border:1px solid #fed7aa;border-radius:var(--radius);
+  padding:14px 16px;margin-bottom:14px;box-shadow:var(--shadow);font-family:inherit;color:var(--text);}
+.pen-banner:hover{filter:brightness(.98);}
+.pen-banner .pb-icon{font-size:28px;flex:none;}
+.pen-banner .pb-main{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0;}
+.pen-banner .pb-main b{font-size:15.5px;}
+.pen-banner .pb-main span{font-size:12.5px;color:#9a3412;}
+.pen-banner .pb-arrow{font-size:24px;color:var(--orange);}
+.pen-item{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:10px;}
+.pen-item.compact{padding:10px 12px;}
+.pen-item .pi-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.pen-item .pi-reason{margin-top:8px;font-size:15px;line-height:1.7;white-space:pre-wrap;word-break:break-word;}
+.pen-item.compact .pi-reason{font-size:14px;margin-top:5px;}
+.pen-foot{margin-top:14px;padding:10px 12px;background:#f0fdf4;border-radius:10px;
+  color:#166534;font-size:13.5px;line-height:1.6;}
+.pen-history{border-left:4px solid var(--orange);}
+.row-penalty{background:#fff7ed;}

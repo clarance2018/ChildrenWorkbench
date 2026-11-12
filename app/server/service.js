@@ -580,6 +580,14 @@ function createService({ getState, save, dataDir, storage }) {
     { id: "templates.list", method: "GET", path: "/api/v1/templates", scope: "tasks:read", summary: "列出家长收藏的常用任务模板",
       params: [],
       run: () => ({ ok: true, templates: (getState().templates || []).map(t => ({ id: t.id, title: t.title, subject: t.subject, category: t.category, type: t.type, estimated_minutes: t.estimated_minutes, star_value: t.star_value })) }) },
+    { id: "penalties.list", method: "GET", path: "/api/v1/penalties", scope: "report:read", summary: "列出做错事时的扣分记录（含必填原因、孩子是否已读）",
+      params: [{ name: "unread", in: "query", type: "string", desc: "true 只看孩子未读，缺省全部" }],
+      run: a => {
+        let list = ((getState().points || {}).log || []).filter(e => e && (e.kind === "penalty" || e.reason === "penalty"));
+        if (a.unread === "true") list = list.filter(e => !e.seen_at);
+        list = list.slice().sort((x, y) => (y.created_at || "").localeCompare(x.created_at || ""));
+        return { ok: true, count: list.length, penalties: list.slice(0, 100).map(e => ({ id: e.id, amount: Math.abs(Number(e.delta) || 0), reason: e.note || "", by: e.by || "", date: e.date || "", seen: !!e.seen_at, created_at: e.created_at })) };
+      } },
 
     { id: "import.text", method: "POST", path: "/api/v1/import", scope: "import:write", summary: "解析老师原文，生成备注与待确认任务",
       params: [{ name: "text", in: "body", type: "string", required: true, desc: "老师发的原文" }, { name: "date", in: "body", type: "string", desc: "作业日期，缺省今天" }],

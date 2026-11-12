@@ -98,6 +98,7 @@ const Child = {
     const notifyState = (typeof Remind !== "undefined") ? Remind.permLabel() : "不支持";
     const unplayedEnc = (typeof Store !== "undefined" && Store.unplayedEncouragements) ? Store.unplayedEncouragements() : [];
     const modeTag = Store.db.settings.scheduleMode==="vacation" ? " · 🏖 假期模式" : "";
+    const unreadPen = Store.unreadPenalties ? Store.unreadPenalties() : [];
 
     return `<div class="child-shell">
       <div class="child-header">
@@ -105,6 +106,11 @@ const Child = {
         <button class="kiosk-fab" onclick="Child.toggleKiosk()">${kioskOn?"🔓 退出专注":"🖥 专注模式"}</button>
       </div>
       ${noteHtml}
+      ${unreadPen.length?`<button class="pen-banner" onclick="Child.openPenalties()">
+        <span class="pb-icon">💬</span>
+        <span class="pb-main"><b>爸爸妈妈有 ${unreadPen.length} 条话想跟你说</b>
+          <span>扣了 ${unreadPen.reduce((s,e)=>s+Math.abs(Number(e.delta)||0),0)} ⭐ · 点开看看是为什么，下次做好它</span></span>
+        <span class="pb-arrow">›</span></button>`:""}
       ${allDone?`<div class="celebrate-card">
         <div class="cc-confetti">✨ ⭐ 🎉 ⭐ ✨</div>
         <div class="cc-emoji">🎉</div>
@@ -553,6 +559,20 @@ const Child = {
       </div>`).join(""), [{label:"知道了",cls:"btn-primary",fn:()=>route()}], true);
   },
 
+  /* 扣分说明：让孩子看到扣了几颗、为什么，读完后标记已读 */
+  openPenalties(showAll){
+    const list=(showAll?Store.penalties():Store.unreadPenalties()).slice(0,20);
+    if(!list.length) return toast("暂时没有新的扣分说明～");
+    modal("💬 爸爸妈妈想跟你说", list.map(e=>`
+      <div class="pen-item">
+        <div class="pi-top"><b class="pen-amount">−${Math.abs(Number(e.delta)||0)} ⭐</b>
+          <span class="muted small">${(e.created_at||"").slice(5,16).replace("T"," ")} · ${esc(e.by||"家长")}</span></div>
+        <div class="pi-reason">${this.maybeRuby(e.note||"（没有写原因）")}</div>
+      </div>`).join("") +
+      `<div class="pen-foot">做错了没关系 🌱 知道错在哪里，下次改过来，星星还能一颗颗挣回来！</div>`,
+      [{label:"我知道了",cls:"btn-primary",fn:()=>{ Store.markAllPenaltiesSeen(); route(); }}], true);
+  },
+
   /* ---------- K5 奖励商城（余额 / 愿望 / 兑换 / 明细） ---------- */
   renderRewards(){
     const total=Store.db.points.total;
@@ -590,12 +610,26 @@ const Child = {
       <td>${r.status==="pending"?'<span class="tag tag-orange">等家长确认</span>':r.status==="fulfilled"?'<span class="tag tag-green">已兑现 🎉</span>':`<span class="tag tag-red">未通过</span>${r.note?`<div class="small muted">${esc(r.note)}</div>`:""}`}</td>
       <td class="muted small">${(r.requested_at||"").slice(5,16).replace("T"," ")}</td></tr>`).join("");
 
-    const log=[...Store.db.points.log].reverse().slice(0,15);
+    const pens=Store.penalties();
+    const unread=Store.unreadPenalties();
+    const penCard=`<div class="card pen-history">
+      <div class="flex-between"><h3 style="margin:0">💬 扣分说明 ${unread.length?`<span class="tag tag-orange">${unread.length} 条未读</span>`:""}</h3>
+        ${pens.length?`<button class="btn btn-ghost btn-sm" onclick="Child.openPenalties(true)">查看全部</button>`:""}</div>
+      ${pens.length?pens.slice(0,5).map(e=>`<div class="pen-item compact">
+        <div class="pi-top"><b class="pen-amount">−${Math.abs(Number(e.delta)||0)} ⭐</b>
+          <span class="muted small">${(e.created_at||"").slice(5,16).replace("T"," ")}</span></div>
+        <div class="pi-reason">${this.maybeRuby(e.note||"（没有写原因）")}</div>
+      </div>`).join(""):`<div class="small muted mt8">还没有扣分记录。星星靠完成任务一颗颗挣，做错事时爸爸妈妈会写清楚原因告诉你。</div>`}
+      ${unread.length?`<button class="btn btn-outline btn-sm mt12" onclick="Child.openPenalties()">我知道了（标记已读）</button>`:""}
+    </div>`;
+
+    const log=[...(Store.db.points.log||[])].reverse().slice(0,15);
     const rows=log.map(l=>{
       const t=Store.getTask(l.task_id);
-      return `<tr><td>${l.delta>0?`+${l.delta} ⭐`:`${l.delta} ⭐`}</td>
-        <td>${esc(t?t.title:(l.reason==="redeem"?"兑换奖励":"（任务已删除）"))}</td>
-        <td>${{complete:"完成任务",undo:"撤销完成",revoke_reject:"家长退回",redeem:"兑换奖励"}[l.reason]||l.reason}</td>
+      const isPen=l.kind==="penalty"||l.reason==="penalty";
+      return `<tr${isPen?' class="row-penalty"':''}><td>${l.delta>0?`+${l.delta} ⭐`:`${l.delta} ⭐`}</td>
+        <td>${isPen?esc(l.note||"做错事扣分"):esc(t?t.title:(l.reason==="redeem"?"兑换奖励":"（任务已删除）"))}</td>
+        <td>${isPen?'<span class="tag tag-red">做错事扣分</span>':({complete:"完成任务",undo:"撤销完成",revoke_reject:"家长退回",redeem:"兑换奖励"}[l.reason]||l.reason)}</td>
         <td class="muted small">${(l.created_at||"").slice(5,16).replace("T"," ")}</td></tr>`;
     }).join("");
 
@@ -608,6 +642,7 @@ const Child = {
       ${mine?`<div class="card"><h3>我的兑换</h3>
         <table class="grid"><thead><tr><th>奖励</th><th>花费</th><th>状态</th><th>时间</th></tr></thead>
         <tbody>${mine}</tbody></table></div>`:""}
+      ${penCard}
       <div class="card"><h3>星星明细</h3>
         <table class="grid"><thead><tr><th>变化</th><th>任务</th><th>原因</th><th>时间</th></tr></thead>
         <tbody>${rows||`<tr><td colspan="4"><div class="empty-tip">完成任务就能获得星星，加油！</div></td></tr>`}</tbody></table></div>

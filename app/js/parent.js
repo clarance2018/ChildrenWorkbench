@@ -987,11 +987,27 @@ const Parent = {
       <td>${r.reward_icon||"🎁"} ${esc(r.reward_name)}</td><td>${r.cost}⭐</td>
       <td>${r.status==="fulfilled"?'<span class="tag tag-green">已兑现</span>':'<span class="tag tag-red">未通过</span>'}${r.note?`<div class="small muted">${esc(r.note)}</div>`:""}</td>
       <td class="muted small">${(r.decided_at||"").slice(5,16).replace("T"," ")}</td></tr>`).join("");
+    const pens=Store.penalties();
+    const penRows=pens.map(e=>`<tr>
+      <td><b class="pen-amount">−${Math.abs(Number(e.delta)||0)} ⭐</b></td>
+      <td><b>${esc(e.note||"（未填原因）")}</b>${e.by?`<div class="small muted">${esc(e.by)} 记录</div>`:""}</td>
+      <td>${e.seen_at?'<span class="tag tag-green">孩子已看</span>':'<span class="tag tag-orange">孩子未读</span>'}</td>
+      <td class="muted small">${(e.created_at||"").slice(5,16).replace("T"," ")}</td></tr>`).join("");
     return `<div class="page page-narrow">
       <div class="flex-between">
         <div><div class="page-title">奖励管理</div>
         <div class="page-sub">孩子用星星申请兑换，家长在这里确认后扣星——星星从"数字"变成孩子摸得到的期待</div></div>
-        ${this.isAdmin()?`<button class="btn btn-primary" onclick="Parent.rewardModal()">+ 新增奖品</button>`:""}
+        <div class="flex">${this.isAdmin()?`<button class="btn btn-red" onclick="Parent.penaltyModal()">− 扣星星</button>`:""}
+        ${this.isAdmin()?`<button class="btn btn-primary" onclick="Parent.rewardModal()">+ 新增奖品</button>`:""}</div>
+      </div>
+      <div class="card penalty-card">
+        <div class="flex-between">
+          <div><h3 style="margin:0">📢 做错事时的扣分记录</h3>
+            <div class="small muted mt8">扣分原因<strong>必填</strong>，会同步到孩子端，让孩子明白错在哪里；只扣可用余额，不影响徽章（徽章按累计挣得）</div></div>
+          ${this.isAdmin()?`<button class="btn btn-outline btn-sm" onclick="Parent.penaltyModal()">＋ 记一条</button>`:""}
+        </div>
+        ${penRows?`<table class="grid mt12"><thead><tr><th>扣除</th><th>原因</th><th>孩子</th><th>时间</th></tr></thead>
+          <tbody>${penRows}</tbody></table>`:`<div class="empty-tip" style="padding:16px 0">还没有扣分记录。孩子做错事时点「记一条」，写清原因即可同步给孩子。</div>`}
       </div>
       <div class="report-grid">
         <div class="metric"><div class="m-label">孩子可用星星</div><div class="m-value">⭐ ${Store.db.points.total}</div>
@@ -1010,6 +1026,34 @@ const Parent = {
         <table class="grid"><thead><tr><th>奖励</th><th>花费</th><th>结果</th><th>时间</th></tr></thead>
         <tbody>${histRows}</tbody></table></div>`:""}
     </div>`;
+  },
+  /* ---------- 扣分：做错事时记录，原因必填，同步到孩子端 ---------- */
+  penaltyModal(){
+    if(!this.guard())return;
+    const quick=["没有按时完成作业","对家人说话没礼貌","发脾气、扔东西","说了不实话","玩平板超时","没有收拾自己的东西"];
+    modal("− 扣星星 · 记一条说明", `<div class="form-grid">
+      <div class="form-row"><label>扣除几颗星 *</label>
+        <input id="pn-amount" type="number" min="1" max="50" value="1"></div>
+      <div class="form-row"><label>谁记录的</label>
+        <input id="pn-by" maxlength="20" value="妈妈" placeholder="如：妈妈 / 爸爸"></div>
+      <div class="form-row full"><label>扣分原因 * <span class="muted small">（必填，孩子端会看到这段话）</span></label>
+        <textarea id="pn-reason" rows="3" maxlength="200" placeholder="用孩子能听懂的话写清楚：发生了什么、为什么不对、下次怎么做"></textarea>
+        <div class="quick-reasons mt8">${quick.map(q=>`<button type="button" class="chip" onclick="document.getElementById('pn-reason').value='${q}'">${q}</button>`).join("")}</div></div>
+      <div class="form-row full"><div class="pen-tip">💡 建议先和孩子说清楚再记录。孩子端会显示「扣了几颗星 + 这段话」，点开确认后标记为已读。</div></div>
+    </div>`,[
+      {label:"取消",cls:"btn-ghost",fn:null},
+      {label:"确认扣分",cls:"btn-red",fn:()=>{
+        const amount=parseInt(document.getElementById("pn-amount").value,10);
+        const by=document.getElementById("pn-by").value.trim();
+        const reason=document.getElementById("pn-reason").value.trim();
+        const res=Store.addPenalty(amount,reason,by);
+        if(!res.ok){ toast(res.message||"扣分失败"); return false; }  /* 返回 false 保留弹窗让用户补填 */
+        route();
+        toast(res.amount<res.requested
+          ? `余额不足，已扣 ${res.amount}⭐（余额归零），原因已同步给孩子`
+          : `已扣 ${res.amount}⭐，原因已同步给孩子端`);
+      }}
+    ], true);
   },
   rewardModal(id){
     if(!this.guard())return;

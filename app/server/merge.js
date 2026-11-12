@@ -64,13 +64,27 @@ function mergeRecordings(prevMap, nextMap, tombMap) {
   return out;
 }
 
-function mergePoints(prev, next) {
+function mergePoints(prev, next, scope) {
   const p = prev || {}, n = next || {};
   const log = new Map();
   [...(p.log || []), ...(n.log || [])].forEach(e => { if (e && e.id) log.set(e.id, e); });
+  const isPenalty = e => e && (e.kind === "penalty" || e.reason === "penalty");
+  if (scope === "child") {
+    /* 孩子端不允许新增/篡改扣分记录（防止自行抹掉原因或伪造扣分）；
+     * 唯一放行的写入是「标记已读」seen_at，其余字段一律以服务端为准 */
+    const prevById = byId(p.log);
+    [...log.entries()].forEach(([id, e]) => {
+      if (!isPenalty(e)) return;
+      const base = prevById.get(id);
+      if (!base) return void log.delete(id);
+      log.set(id, Object.assign({}, base, { seen_at: e.seen_at || base.seen_at || null }));
+    });
+  }
   const entries = [...log.values()].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
   const sum = entries.reduce((s, e) => s + (Number(e.delta) || 0), 0);
-  return { total: Math.max(0, sum), log: entries };
+  /* 累计获得按正向流水重算：扣分/兑换均为负 delta，不影响徽章等级 */
+  const earned = entries.reduce((s, e) => s + Math.max(0, Number(e.delta) || 0), 0);
+  return { total: Math.max(0, sum), earned_total: earned, log: entries };
 }
 
 function mergeStreak(prev, next) {
@@ -155,7 +169,7 @@ function mergeStates(prev, next, scope = "parent") {
     else if (out.settings) delete out.settings.parent_pin;
   }
 
-  out.points = mergePoints(prev.points, next.points);
+  out.points = mergePoints(prev.points, next.points, scope);
   out.streak = mergeStreak(prev.streak, next.streak);
   return out;
 }

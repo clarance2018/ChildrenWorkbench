@@ -255,7 +255,7 @@ const Store = {
     d.timetable=d.timetable||{1:{subjects:[],notes:""},2:{subjects:[],notes:""},3:{subjects:[],notes:""},
       4:{subjects:[],notes:""},5:{subjects:[],notes:""},6:{subjects:[],notes:""},7:{subjects:[],notes:""}};
     d.timetableOverrides=d.timetableOverrides||{};
-    d.points=d.points||{total:0,log:[]}; d.streak=d.streak||{days:0,lastDate:null};
+    d.points=d.points||{total:0,log:[]}; d.points.log=d.points.log||[]; d.streak=d.streak||{days:0,lastDate:null};
     /* 兑换商城 / 错题本 / 假期课表（Batch D/E） */
     d.rewards=d.rewards||[]; d.redemptions=d.redemptions||[]; d.mistakes=d.mistakes||[];
     d.vacationTimetable=d.vacationTimetable||{1:{subjects:[],notes:""},2:{subjects:[],notes:""},3:{subjects:[],notes:""},
@@ -510,6 +510,46 @@ const Store = {
       this.db.points.log.push({id:uid(),task_id:taskId,delta:-t.star_awarded,reason:reason||"revoke_reject",created_at:new Date().toISOString()});
       t.star_awarded=0; this.save();
     }
+  },
+
+  /* ---------- 扣分（做错事时）：原因必填，写进积分流水，孩子端可见 ---------- */
+  addPenalty(amount, reason, by){
+    const n=Math.floor(Number(amount)||0);
+    const why=String(reason==null?"":reason).trim();
+    if(!why) return {ok:false,error:"reason_required",message:"请填写扣分原因，孩子端会看到"};
+    if(n<1 || n>50) return {ok:false,error:"bad_amount",message:"扣分数量需在 1~50 之间"};
+    const avail=Math.max(0,Math.floor(Number(this.db.points.total)||0));
+    const actual=Math.min(n,avail);   /* 余额不足时扣到 0，仍保留原因记录 */
+    /* 同一毫秒连续记两条时把时间往后推 1ms，保证孩子端「最新一条」顺序稳定 */
+    const newest=[...(this.db.points.log||[])].filter(x=>x&&(x.kind==="penalty"||x.reason==="penalty"))
+      .map(x=>x.created_at||"").sort().pop();
+    let at=new Date();
+    if(newest && at.toISOString()<=newest) at=new Date(Date.parse(newest)+1);
+    const e={
+      id:uid(), task_id:null, delta:-actual, kind:"penalty", reason:"penalty",
+      note:why.slice(0,200), by:String(by||"家长").slice(0,20),
+      date:todayStr(), created_at:at.toISOString(), seen_at:null
+    };
+    this.db.points.total=Math.max(0,avail-actual);
+    this.db.points.log.push(e);
+    this.save();
+    return {ok:true,entry:e,amount:actual,requested:n};
+  },
+  penalties(){
+    return (this.db.points.log||[]).filter(e=>e&&(e.kind==="penalty"||e.reason==="penalty"))
+      .slice().sort((a,b)=>String(b.created_at||"").localeCompare(String(a.created_at||"")));
+  },
+  unreadPenalties(){ return this.penalties().filter(e=>!e.seen_at); },
+  markPenaltySeen(id){
+    const e=(this.db.points.log||[]).find(x=>x&&x.id===id);
+    if(!e || e.seen_at) return false;
+    e.seen_at=new Date().toISOString(); this.save(); return true;
+  },
+  markAllPenaltiesSeen(){
+    const list=this.unreadPenalties();
+    if(!list.length) return 0;
+    list.forEach(e=>{ e.seen_at=new Date().toISOString(); });
+    this.save(); return list.length;
   },
 
   /* ---------- 完成 / 撤销 / 退回 ---------- */
