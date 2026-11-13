@@ -290,8 +290,11 @@ const Store = {
       encouragement:true,eyeCare:true,scheduleMode:"daily",goals:null,
       kitEnabled:true,tt_speak:true,show_timetable_card:true,timetable_updated_at:null,
       kitMergeManual:true}, d.settings||{});
-    /* 家长改过的科目保留，缺失的补默认；把某科目设为 [] 即可表示"不用带东西" */
+    /* 家长改过的科目保留，缺失的补默认；把某科目设为 [] 即可表示"不用带东西"。
+     * subjectRemoved 是删除墓碑：被删的科目不会再被 migrate 的默认科目补回来，也不会出现在填写建议里。 */
+    d.settings.subjectRemoved=Array.isArray(d.settings.subjectRemoved)?d.settings.subjectRemoved:[];
     d.settings.subjectKit=Object.assign({}, DEFAULT_SUBJECT_KIT, d.settings.subjectKit||{});
+    d.settings.subjectRemoved.forEach(k=>{ delete d.settings.subjectKit[k]; });
     d.child=d.child||{id:"child_1",name:"小宝"};
     d.templates=d.templates||[]; d.notes=d.notes||{}; d.recordings=d.recordings||{}; d.photos=d.photos||{};
     d.encouragements=d.encouragements||[];
@@ -537,8 +540,147 @@ const Store = {
     return h ? h.remind_time : null;
   },
 
+  /* ---------- 课表粘贴导入 ----------
+   * 学校系统 / Excel 复制出来的课表通常是「每行一节次、每格 科目 老师 教室」。
+   * 这里统一解析成网格行，家长确认预览后一次性写入，避免逐格手抄 42 个格子。 */
+  parseTimetableText(text){
+    const lines=String(text||"").split(/\r?\n/).map(l=>l.trim()).filter(l=>l && !/^[#＃]/.test(l));
+    const rows=[], warnings=[];
+    const CN={"一":1,"二":2,"三":3,"四":4,"五":5,"六":6,"七":7,"八":8,"九":9,"十":10};
+    let period="morning", seq={morning:0,afternoon:0};
+    const splitCols=(line)=>{
+      if(/\t/.test(line))              return line.split(/\t+/).map(s=>s.trim());
+      if(/[|｜]/.test(line))           return line.split(/\s*[|｜]\s*/).map(s=>s.trim());
+      if(/[,，;；]/.test(line))        return line.split(/\s*[,，;；]\s*/).map(s=>s.trim());
+      return line.split(/\s{2,}/).map(s=>s.trim());
+    };
+    /* 每格：科目名 + 选填的老师 / 教室。空白格用 - 或留空表示 */
+    const parseCell=(raw)=>{
+      const s=String(raw==null?"":raw).trim();
+      if(!s || /^[-—－\/·]+$/.test(s)) return {subject:"",meta:""};
+      const parts=(/[\/·／]/.test(s) ? s.split(/\s*[\/·／]\s*/) : s.split(/\s+/)).filter(Boolean);
+      const subject=String(parts.shift()||"").trim();
+      const meta=parts.join(" / ").slice(0,60);
+      return {subject,meta};
+    };
+    lines.forEach((line,idx)=>{
+      /* 表头 / 标题行：含「星期」或「课段/课节」但不像数据 */
+      if(/星期[一二三四五六日1-7]/.test(line) && /课段|课节|课程表|节次/.test(line)) return;
+      if(/课程表|学年|学期课表|本周课表|下周课表/.test(line) && !/语文|数学|英语|体育|艺术|科学|道德|劳动|书法|阅读|综合|活动/.test(line)) return;
+      let cols=splitCols(line);
+      /* 行首的课段 / 节次标记不占周一~周日的列 */
+      let label="";
+      const head=cols[0]||"";
+      if(/下午/.test(head)) period="afternoon";
+      else if(/上午/.test(head)) period="morning";
+      const m=head.match(/(?:第)?\s*([0-9一二三四五六七八九十]+)\s*节?/);
+      if(m && /节|^\d|^[一二三四五六七八九十]/.test(head)){
+        label="第"+(CN[m[1]]||Number(m[1])||1)+"节";
+        cols=cols.slice(1);
+      }else if(/^(上午|下午)$/.test(head)){
+        cols=cols.slice(1);
+      }
+      const cells=["","","","","","",""], metas=["","","","","","",""];
+      cols.slice(0,7).forEach((c,i)=>{ const p=parseCell(c); cells[i]=p.subject; metas[i]=p.meta; });
+      if(cols.length>7) warnings.push(`第 ${idx+1} 行超过 7 列，只取前 7 列`);
+      if(!cells.some(Boolean)){ warnings.push(`第 ${idx+1} 行没识别到科目，已跳过`); return; }
+      seq[period]++;
+      rows.push({id:"gr_imp_"+(idx+1),period,label:label||("第"+seq[period]+"节"),cells,metas});
+    });
+    if(!rows.length) warnings.push("没有识别到任何一节课程，请检查粘贴格式");
+    const subjects=[];
+    rows.forEach(r=>r.cells.forEach(c=>{ c=this.gridCellSubject(c); if(c && !subjects.includes(c)) subjects.push(c); }));
+    return {rows,warnings,subjects};
+  },
+  /* 导入预览里给家长的「这一科建议带什么」：已配的直接用，没配的按关键字给建议（家长可改） */
+  kitSuggestionFor(subject){
+    const got=this.suggestKit(subject);
+    if(got.matched) return {matched:true,key:got.key,items:got.items.slice()};
+    const s=String(subject||"");
+    const RULES=[
+      [/美术|画画|绘画/,["水彩笔","图画本"]], [/音乐|口风琴|合唱/,["口风琴","音乐课本"]],
+      /* 「活动」「实践」优先按劳动/实践类匹配，避免被「体育」规则抢走 */
+      [/劳动|实践|手工|综合/,["手工材料","抹布"]],
+      [/书法|写字/,["毛笔","字帖","书法本"]], [/英语|外语|地方/,["英语课本","练习册"]],
+      [/体育|运动|健康/,["运动鞋","跳绳","水杯"]], [/数学|拓展|思维/,["数学课本","口算本"]],
+      [/阅读|语文|识字|写字/,["语文课本","课外书","生字本"]], [/科学|自然/,["科学课本"]],
+      [/道德|法治|品德|道法/,["课本","练习册"]]
+    ];
+    const hit=RULES.find(([re])=>re.test(s));
+    return {matched:false,key:null,items:hit?hit[1].slice():[],proposal:true};
+  },
+  /* 一次性写入整套网格 + 科目物品；导入的科目若曾被删过会自动恢复 */
+  applyImportedGrid(mode,rows,kitPatch){
+    const m=mode==="vacation"?"vacation":"daily";
+    const g=this.gridDefault();
+    g.rows=(rows||[]).map((r,i)=>({
+      id:r.id||("gr_imp_"+(i+1)), period:r.period==="afternoon"?"afternoon":"morning",
+      label:String(r.label||""),
+      cells:(Array.isArray(r.cells)?r.cells:[]).slice(0,7).concat(["","","","","","",""]).slice(0,7).map(x=>this.gridCellSubject(x)),
+      metas:(Array.isArray(r.metas)?r.metas:[]).slice(0,7).concat(["","","","","","",""]).slice(0,7).map(x=>String(x==null?"":x).trim())
+    }));
+    this.renumberGrid(g);
+    this.db[this.gridKey(m)]=g;
+    this.syncGridToPack(m);          /* 派生 timetable[w].subjects + 打课表变更时间戳 */
+    if(kitPatch && Object.keys(kitPatch).length){
+      const kit=Object.assign({},this.subjectKitMap());
+      Object.keys(kitPatch).forEach(k=>{ const v=kitPatch[k]; if(Array.isArray(v)) kit[k]=v; });
+      this.db.settings.subjectKit=kit;
+    }
+    /* 导入进来的科目不该还留在删除墓碑里，否则书包清单会漏掉它 */
+    const appeared=new Set();
+    g.rows.forEach(r=>r.cells.forEach(c=>{ if(c) appeared.add(c); }));
+    this.db.settings.subjectRemoved=(this.subjectRemoved()||[]).filter(x=>!appeared.has(x));
+    this.save();
+    return {rows:g.rows.length,subjects:appeared.size};
+  },
+
   /* ---------- A：科目 → 要带的物品，按明日课表自动生成整理书包清单 ---------- */
   subjectKitMap(){ return (this.db.settings||{}).subjectKit||{}; },
+  subjectRemoved(){ return (this.db.settings||{}).subjectRemoved||[]; },
+  /* 误创的科目要能删干净：从物品清单移除 + 写墓碑（防 migrate 默认项、旧端快照把名字带回来），
+   * subjectSuggestions / renderKitCard 都会跳过墓碑里的名字。clearCells=true 时连课表格子一起清空。 */
+  subjectCellCount(name){
+    const key=this.gridCellSubject(name); if(!key) return 0;
+    let n=0;
+    ["timetableGrid","vacationTimetableGrid"].forEach(gk=>{
+      ((this.db[gk]||{}).rows||[]).forEach(r=>(r.cells||[]).forEach(c=>{ if(this.gridCellSubject(c)===key) n++; }));
+    });
+    return n;
+  },
+  removeSubject(name, clearCells){
+    const key=this.gridCellSubject(name); if(!key) return {cells:0};
+    const s=this.db.settings||(this.db.settings={});
+    s.subjectKit=s.subjectKit||{}; delete s.subjectKit[key];
+    s.subjectRemoved=Array.from(new Set([...(Array.isArray(s.subjectRemoved)?s.subjectRemoved:[]),key]));
+    let cells=0;
+    if(clearCells){
+      ["timetableGrid","vacationTimetableGrid"].forEach(gk=>{
+        const g=this.db[gk]; if(!g||!Array.isArray(g.rows)) return;
+        g.rows.forEach(r=>{
+          if(!Array.isArray(r.cells)) r.cells=["","","","","","",""];
+          if(!Array.isArray(r.metas)) r.metas=["","","","","","",""];
+          r.cells.forEach((c,i)=>{ if(this.gridCellSubject(c)===key){ r.cells[i]=""; r.metas[i]=""; cells++; } });
+        });
+        g.updated_at=new Date().toISOString();
+      });
+      ["timetable","vacationTimetable"].forEach(pk=>{
+        const p=this.db[pk]; if(!p) return;
+        Object.values(p).forEach(t=>{ if(t&&Array.isArray(t.subjects)) t.subjects=t.subjects.filter(x=>this.gridCellSubject(x)!==key); });
+      });
+      s.timetable_updated_at=new Date().toISOString();
+    }
+    this.save();
+    return {cells};
+  },
+  restoreSubject(name){
+    const key=this.gridCellSubject(name); if(!key) return;
+    const s=this.db.settings||(this.db.settings={});
+    s.subjectRemoved=(Array.isArray(s.subjectRemoved)?s.subjectRemoved:[]).filter(x=>x!==key);
+    s.subjectKit=s.subjectKit||{};
+    if(!(key in s.subjectKit)) s.subjectKit[key]=[];
+    this.save();
+  },
   kitEnabled(){
     return (this.db.settings||{}).kitEnabled!==false && Object.keys(this.subjectKitMap()).length>0;
   },
@@ -546,6 +688,7 @@ const Store = {
    * 双向包含匹配让家长照抄课表也能对上清单，不用迁就系统里的短名。 */
   kitKeyFor(subject){
     const v=String(subject==null?"":subject).trim(); if(!v) return null;
+    if(this.subjectRemoved().includes(v)) return null;
     const kit=this.subjectKitMap(), keys=Object.keys(kit);
     if(kit[v]) return v;
     return keys.find(k=>v.includes(k)) || keys.find(k=>k.includes(v)) || null;
@@ -555,9 +698,11 @@ const Store = {
     if(!key) return { matched:false, key:null, items:[] };
     return { matched:true, key, items:(this.subjectKitMap()[key]||[]).slice() };
   },
-  /* 填课表时给家长的标准科目候选：已配物品的优先，再补小学常见全称 */
+  /* 填课表时给家长的标准科目候选：已配物品的优先，再补小学常见全称。
+   * 被家长删掉的科目（墓碑）不再出现在建议里，避免误创的名字永远清不掉。 */
   subjectSuggestions(){
-    const out=[], add=x=>{ x=String(x==null?"":x).trim(); if(x && !out.includes(x)) out.push(x); };
+    const removed=this.subjectRemoved();
+    const out=[], add=x=>{ x=String(x==null?"":x).trim(); if(x && !removed.includes(x) && !out.includes(x)) out.push(x); };
     Object.keys(this.subjectKitMap()).forEach(add);
     COMMON_SUBJECTS.forEach(add);
     [this.db.timetableGrid,this.db.vacationTimetableGrid].forEach(g=>

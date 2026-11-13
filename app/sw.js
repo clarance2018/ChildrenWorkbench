@@ -2,7 +2,7 @@
  * v10 修正：JS/CSS 改网络优先——旧版缓存优先策略导致服务端更新后
  * 用户要刷新两次才能看到新功能（表现为"代码更新了页面却没变化"）
  */
-const CACHE = "hwbench-v16";
+const CACHE = "hwbench-v17";
 const SHELL = [
   "./", "./index.html", "./css/style.css", "./manifest.json", "./icons/icon.svg",
   "./js/pinyin.js", "./js/sound.js", "./js/store.js", "./js/parser.js", "./js/ai.js",

@@ -169,6 +169,11 @@ function mergeStates(prev, next, scope = "parent") {
     out.timetableGrid = (next.timetableGrid && next.timetableGrid.rows) ? next.timetableGrid : prev.timetableGrid;
     out.vacationTimetableGrid = (next.vacationTimetableGrid && next.vacationTimetableGrid.rows) ? next.vacationTimetableGrid : prev.vacationTimetableGrid;
     out.settings = Object.assign({}, prev.settings || {}, next.settings || {});
+    /* 已删除科目写墓碑：旧设备快照把它带回来时再清一次，避免 REST/MCP 侧复活 */
+    if (Array.isArray(out.settings.subjectRemoved) && out.settings.subjectKit) {
+      out.settings.subjectKit = Object.assign({}, out.settings.subjectKit);
+      out.settings.subjectRemoved.forEach(k => { delete out.settings.subjectKit[k]; });
+    }
     out.child = Object.assign({}, prev.child || {}, next.child || {});
     /* PIN 只认服务端哈希文件，客户端提交的 parent_pin 一律不采纳 */
     if (prev.settings && "parent_pin" in prev.settings) out.settings.parent_pin = prev.settings.parent_pin;

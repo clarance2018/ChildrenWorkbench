@@ -498,8 +498,47 @@ body.kiosk-on .task-card{transform:scale(1.01);}
   font-size:13.5px;line-height:1.7;}
 .kit-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px 14px;}
 .kit-row{display:flex;align-items:center;gap:8px;}
-.kit-row label{width:64px;flex:none;font-weight:700;font-size:13.5px;}
+.kit-row label{width:72px;flex:none;font-weight:700;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .kit-row input{flex:1;min-width:0;}
+.kit-del{flex:none;background:transparent;color:#cbd5e1;font-size:17px;line-height:1;padding:1px 6px;border-radius:5px;}
+.kit-del:hover{color:var(--red);background:#fee2e2;}
+.kit-removed{background:#f8fafc;border:1px dashed var(--line);border-radius:10px;padding:9px 12px;}
+.kit-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;}
+.kit-chip{background:#fff;border:1px solid var(--line);color:var(--text2);font-size:12px;
+  padding:4px 9px;border-radius:999px;}
+.kit-chip:hover{border-color:var(--blue);color:var(--blue);}
+.kit-warn{background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:9px 11px;
+  font-size:13px;line-height:1.65;color:#92400e;}
+
+/* 科目快捷标签：整体可填、右侧 × 单独删除 */
+.tt-chip-wrap{display:inline-flex;align-items:center;background:#fff;border:1px solid #c7d2fe;
+  border-radius:999px;overflow:hidden;}
+.tt-chip-wrap .tt-chip{border:0;border-radius:999px 0 0 999px;}
+.tt-chip-del{border:0;background:transparent;color:#a5b4fc;font-size:14px;line-height:1;
+  padding:5px 8px 5px 4px;}
+.tt-chip-del:hover{color:#fff;background:var(--red);}
+
+/* 粘贴导入课表 */
+.tt-import-text{width:100%;min-height:150px;margin-top:10px;font-family:ui-monospace,Consolas,monospace;
+  font-size:12px;line-height:1.65;white-space:pre;overflow:auto;resize:vertical;}
+.tt-import-preview{margin-top:12px;max-height:46vh;overflow:auto;}
+.tt-imp-summary{background:#ecfdf5;border:1px solid #a7f3d0;border-radius:9px;padding:8px 11px;
+  font-size:13px;color:#065f46;margin-bottom:10px;}
+.tt-imp-scroll{overflow-x:auto;}
+.tt-imp-table{width:100%;min-width:520px;border-collapse:collapse;font-size:12px;}
+.tt-imp-table th,.tt-imp-table td{border:1px solid var(--line);padding:5px 6px;text-align:center;}
+.tt-imp-table thead th{background:#f8fafc;}
+.tt-imp-table td.tt-imp-period,.tt-imp-table td.tt-imp-slot{background:#fcfdff;color:var(--text2);white-space:nowrap;}
+.tt-imp-table td.has{font-weight:700;color:var(--text);background:#f8fbff;}
+.tt-imp-kit-head{font-weight:700;font-size:13px;margin:14px 0 8px;color:var(--text);}
+.tt-imp-kit-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:7px 12px;}
+.tt-imp-kit-row{display:flex;align-items:center;gap:6px;}
+.tt-imp-kit-row label{width:92px;flex:none;font-size:12.5px;font-weight:700;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:3px;}
+.tt-imp-kit-row input{flex:1;min-width:0;font-size:12px;}
+.tt-imp-ok,.tt-imp-new{font-style:normal;font-size:10px;font-weight:600;padding:1px 4px;border-radius:4px;flex:none;}
+.tt-imp-ok{background:#dcfce7;color:#15803d;}
+.tt-imp-new{background:#fef3c7;color:#b45309;}
 
 /* ========== 标准课表网格（课段 / 节次 × 周一~周日） ========== */
 .tt-tips{background:linear-gradient(135deg,#f0f9ff,#f5f3ff);border:1px solid #dbeafe;}

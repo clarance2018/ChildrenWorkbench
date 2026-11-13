@@ -437,6 +437,70 @@ function createService({ getState, save, dataDir, storage }) {
     save();
     return { ok: true, weekday: w, timetable: state.timetable[w] };
   }
+  /* 整张课表网格导入（REST / MCP）：rows 为课段/节次 × 周一~周日，
+   * 同时派生 timetable[w].subjects，保证书包清单、周报、语音口径一致。 */
+  function importTimetableGrid(body) {
+    const state = getState();
+    const rowsIn = Array.isArray(body && body.rows) ? body.rows : null;
+    if (!rowsIn || !rowsIn.length) return { ok: false, error: "bad_rows", message: "需要 rows 数组（每行含 period/label/cells/metas）" };
+    const mode = body && body.schedule_mode === "vacation" ? "vacation" : "daily";
+    const gKey = mode === "vacation" ? "vacationTimetableGrid" : "timetableGrid";
+    const pKey = mode === "vacation" ? "vacationTimetable" : "timetable";
+    const clean = x => String(x == null ? "" : x).trim().slice(0, 20);
+    const pad7 = a => (Array.isArray(a) ? a : []).slice(0, 7).concat(["", "", "", "", "", "", ""]).slice(0, 7);
+    /* 与前端粘贴导入同规则：格内只给「科目 老师 教室」时自动拆成 subject + meta，
+     * 避免 AI / MCP 调用方把整串当成科目名（书包清单会因此漏掉这一科）。 */
+    const splitCell = (raw, meta) => {
+      const s = String(raw == null ? "" : raw).trim(), m = String(meta == null ? "" : meta).trim();
+      if (!s || /^[-—－]+$/.test(s)) return { subject: "", meta: m.slice(0, 60) };
+      const parts = (/[\/·／\s]/.test(s) ? s.split(/[\/·／\s]+/) : [s]).filter(Boolean);
+      const subject = clean(parts.shift() || "");
+      return { subject, meta: (m || parts.join(" / ")).slice(0, 60) };
+    };
+    const at = new Date().toISOString();
+    const rows = rowsIn.slice(0, 20).map((r, i) => {
+      const cellsRaw = pad7(r && r.cells), metasRaw = pad7(r && r.metas);
+      const cells = [], metas = [];
+      for (let j = 0; j < 7; j++) {
+        const p = splitCell(cellsRaw[j], metasRaw[j]);
+        cells.push(p.subject); metas.push(p.meta);
+      }
+      return {
+        id: String(r && r.id || ("gr_imp_" + (i + 1))).slice(0, 40),
+        period: r && r.period === "afternoon" ? "afternoon" : "morning",
+        label: String(r && r.label || "").slice(0, 20),
+        cells, metas
+      };
+    });
+    const seq = { morning: 0, afternoon: 0 };
+    rows.forEach(r => { seq[r.period]++; if (!r.label || /^第\d+节$/.test(r.label)) r.label = "第" + seq[r.period] + "节"; });
+    state[gKey] = { updated_at: at, rows };
+    const pack = state[pKey] = state[pKey] || {};
+    [1, 2, 3, 4, 5, 6, 7].forEach(w => {
+      const seen = [];
+      rows.forEach(r => { const s = clean(r.cells[w - 1]); if (s && !seen.includes(s)) seen.push(s); });
+      pack[w] = Object.assign({}, pack[w] || {}, { subjects: seen, updated_at: at });
+    });
+    /* 可选：同时写入 / 更新「科目 → 要带的物品」 */
+    if (body && body.subject_kit && typeof body.subject_kit === "object") {
+      state.settings = state.settings || {};
+      const kit = Object.assign({}, state.settings.subjectKit || {});
+      Object.keys(body.subject_kit).slice(0, 40).forEach(k => {
+        const v = body.subject_kit[k];
+        kit[String(k).slice(0, 20)] = Array.isArray(v) ? v.map(x => String(x).trim().slice(0, 20)).filter(Boolean).slice(0, 12) : [];
+      });
+      state.settings.subjectKit = kit;
+      const appeared = new Set();
+      rows.forEach(r => r.cells.forEach(c => { if (c) appeared.add(c); }));
+      state.settings.subjectRemoved = (state.settings.subjectRemoved || []).filter(x => !appeared.has(x));
+    }
+    state.settings = state.settings || {};
+    state.settings.timetable_updated_at = at;
+    save();
+    return { ok: true, schedule_mode: mode, rows: rows.length, subjects: (() => {
+      const s = new Set(); rows.forEach(r => r.cells.forEach(c => { if (c) s.add(c); })); return s.size;
+    })() };
+  }
   function setTimetableOverride(date, body) {
     if (!isDateStr(date)) return { ok: false, error: "bad_date" };
     const state = getState();
@@ -482,7 +546,7 @@ function createService({ getState, save, dataDir, storage }) {
         recordings: (state.recordings[t.id] || []).length
       })),
       by_subject: bySubject,
-      note: (state.notes[day] && state.notes[day].note) || ""
+      note: ((state.notes || {})[day] && state.notes[day].note) || ""
     };
   }
   function getWeeklyReport(start) {
@@ -586,6 +650,12 @@ function createService({ getState, save, dataDir, storage }) {
     { id: "timetable.override", method: "PUT", path: "/api/v1/timetable/override/:date", scope: "timetable:write", summary: "临时调课",
       params: [{ name: "date", in: "path", type: "string", required: true, desc: "YYYY-MM-DD" }, { name: "subjects", in: "body", type: "array", desc: "科目列表" }],
       run: a => setTimetableOverride(a.date, a) },
+    { id: "timetable.import_grid", method: "POST", path: "/api/v1/timetable/import-grid", scope: "timetable:write",
+      summary: "整张标准课表网格导入（课段/节次 × 周一~周日，可带老师教室与科目物品），自动派生每天科目",
+      params: [{ name: "rows", in: "body", type: "array", required: true, desc: "每行 {period,label,cells[7],metas[7]}" },
+        { name: "schedule_mode", in: "body", type: "string", desc: "daily（缺省）/vacation" },
+        { name: "subject_kit", in: "body", type: "object", desc: "可选：科目名 → 物品数组" }],
+      run: a => importTimetableGrid(a) },
 
     { id: "progress.get", method: "GET", path: "/api/v1/progress", scope: "report:read", summary: "查询某天完成情况与用时",
       params: [{ name: "date", in: "query", type: "string", desc: "YYYY-MM-DD，缺省今天" }], run: a => getProgress(a.date) },
@@ -656,7 +726,7 @@ function createService({ getState, save, dataDir, storage }) {
     listDrafts, confirmDraft, confirmBatch, discardDraft,
     getNote, setNote, importText,
     listHabits, createHabit, listPeriodRules, createPeriodRule,
-    getTimetable, getTimetableGrid, setTimetableWeekday, setTimetableOverride,
+    getTimetable, getTimetableGrid, setTimetableWeekday, setTimetableOverride, importTimetableGrid,
     getProgress, getWeeklyReport
   };
 }

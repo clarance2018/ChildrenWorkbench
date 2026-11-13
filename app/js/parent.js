@@ -1520,15 +1520,17 @@ const Parent = {
           <li>没配过物品的科目会标 <b>⚠</b>，点「补一条」当场补，否则书包清单里不会有这一科。老师 / 教室那行选填，只做展示。</li>
           <li>下午第 2 节之后还能继续新增第 3、4 节；节次名称可改，点 × 可删掉整节。</li>
         </ul>
-        <div class="tt-chips-label">常用科目（先点课表里的格子，再点这里填入）：</div>
-        <div class="tt-chips">${sugg.map((x,i)=>`<button class="tt-chip" onclick="Parent.ttFillAt(${i})">${esc(x)}</button>`).join("")}</div>
+        <div class="tt-chips-label">常用科目（先点课表里的格子，再点这里填入；点 × 可删掉误创的科目）：</div>
+        <div class="tt-chips">${sugg.map((x,i)=>`<span class="tt-chip-wrap"><button class="tt-chip" onclick="Parent.ttFillAt(${i})">${esc(x)}</button><button class="tt-chip-del" title="删除科目「${esc(x)}」" onclick="Parent.delSubjectKit('${esc(x).replace(/'/g,"\\'")}')">×</button></span>`).join("")}</div>
       </div>`:""}
 
       <div class="card" style="padding:0;overflow:hidden">
         <div class="tt-grid-head">
           <div><h3 style="margin:0">${vac?"假期":"学期"}课表 · 固定周课表</h3>
             <div class="small muted">2026-2027 学年 · 按节次排列，和纸质课表一一对应</div></div>
-          ${admin?`<button class="btn btn-outline btn-sm" onclick="Parent.copyPack('${mode}')">⧉ 把${vac?"日常":"假期"}方案复制过来</button>`:""}
+          ${admin?`<div class="flex" style="gap:6px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" onclick="Parent.ttImportOpen()">📥 粘贴导入课表</button>
+            <button class="btn btn-outline btn-sm" onclick="Parent.copyPack('${mode}')">⧉ 把${vac?"日常":"假期"}方案复制过来</button></div>`:""}
         </div>
         <div class="tt-grid-wrap"><table class="tt-grid">
           <thead><tr><th class="tt-period">课段</th><th class="tt-slot">节次</th>
@@ -1598,6 +1600,72 @@ const Parent = {
     if(!el) route();
     toast(`已填入「${subject}」`);
   },
+  /* ---------- 粘贴导入课表 ---------- */
+  /* 内置一份与学校《学生课程表》一致的模板：家长点一下即可导入，也可粘贴自己学校导出的文本 */
+  sampleTimetableText(){
+    const R="教学110前";
+    return [
+      "# 2026-2027 学年第一学期课表（每行一节次，列用 | 或 Tab 分隔，格内：科目 老师 教室；- 表示没课）",
+      `上午 第1节 | 语文 方莹洁 ${R} | 语文 方莹洁 ${R} | 数学 应卓烨 ${R} | 数学拓展 应卓烨 ${R} | 数学 应卓烨 ${R} | - | -`,
+      `上午 第2节 | 体育与健康 万淏 ${R} | 数学 应卓烨 ${R} | 语文 方莹洁 ${R} | 语文 方莹洁 ${R} | 语文 方莹洁 ${R} | - | -`,
+      `上午 第3节 | 数学 应卓烨 ${R} | 体育与健康 万淏 ${R} | 道德与法治 方莹洁 ${R} | 艺术(美术) 陆怡 ${R} | 阅读拓展 李峰 ${R} | - | -`,
+      `上午 第4节 | 语文 方莹洁 ${R} | 道德与法治 方莹洁 ${R} | 地方(英语) 外教 ${R} | 语文 方莹洁 ${R} | 语文 方莹洁 ${R} | - | -`,
+      `下午 第1节 | 科学 王梦娜 ${R} | 书法拓展 戎柔嘉 ${R} | 艺术(音乐) 郑欣怡 ${R} | 体育与健康 万淏 ${R} | 体育与健康 万淏 ${R} | - | -`,
+      `下午 第2节 | 综合实践活动 方莹洁 ${R} | 劳动 方莹洁 ${R} | 体育活动 方莉 ${R} | 艺术(音乐) 郑欣怡 ${R} | 艺术(美术) 陆怡 ${R} | - | -`
+    ].join("\n");
+  },
+  ttImportOpen(){
+    if(!this.guard())return;
+    this._ttImport=null;
+    modal("📥 粘贴导入课表", `
+      <div class="small muted">从学校系统 / Excel 复制整张课表粘进来，或点「填入示例课表」。每行一个节次，7 列对应周一~周日；格内写「科目 老师 教室」，只有科目名也可以（老师 / 教室选填）。<b>导入会覆盖当前方案（${this.ttMode()==="vacation"?"假期":"日常"}）的整张课表</b>，另一套方案不受影响。</div>
+      <textarea id="tt-import-text" class="tt-import-text" rows="9" placeholder="上午 第1节 | 语文 方老师 | 数学 应老师 | ..."></textarea>
+      <div class="flex mt8" style="gap:8px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-sm" onclick="document.getElementById('tt-import-text').value=Parent.sampleTimetableText();toast('已填入示例课表，可直接点「解析预览」')">⧉ 填入示例课表（2026-2027 第一学期）</button>
+      </div>
+      <div id="tt-import-preview" class="tt-import-preview"></div>`, [
+      { label:"取消", cls:"btn-ghost" },
+      { label:"解析预览", cls:"btn-outline", fn:()=>{ this.ttImportPreview(); return false; } },
+      { label:"确认导入", cls:"btn-primary", fn:()=>{ return this.ttImportApply()!==false; } }
+    ], true);
+  },
+  ttImportPreview(){
+    const ta=document.getElementById("tt-import-text");
+    const box=document.getElementById("tt-import-preview");
+    if(!ta||!box) return;
+    const parsed=Store.parseTimetableText(ta.value);
+    this._ttImport=parsed;
+    if(!parsed.rows.length){ box.innerHTML=`<div class="kit-warn">没识别到课程，请检查格式。${parsed.warnings.map(esc).join("；")}</div>`; return; }
+    const dayRows=parsed.rows.map(r=>`<tr><td class="tt-imp-period">${Store.periodLabel(r.period)}</td><td class="tt-imp-slot">${esc(r.label)}</td>
+      ${r.cells.map(c=>`<td${c?' class="has"':''}>${esc(c||"—")}</td>`).join("")}</tr>`).join("");
+    /* 逐科给出「建议带什么」：已配的显示现值，没配的按科目关键字预填建议，家长可直接改 */
+    const kitRows=parsed.subjects.map(s=>{
+      const g=Store.kitSuggestionFor(s);
+      return `<div class="tt-imp-kit-row">
+        <label title="${esc(s)}">${esc(s)}${g.matched?'<i class="tt-imp-ok">已配</i>':'<i class="tt-imp-new">建议</i>'}</label>
+        <input data-imp-kit="${esc(s)}" value="${esc(g.items.join(" / "))}" placeholder="留空=这一科不用带东西">
+      </div>`;
+    }).join("");
+    box.innerHTML=`<div class="tt-imp-summary">✅ 识别到 <b>${parsed.rows.length}</b> 个节次、<b>${parsed.subjects.length}</b> 个科目${parsed.warnings.length?`<span class="muted">（${esc(parsed.warnings.join("；"))}）</span>`:""}</div>
+      <div class="tt-imp-scroll"><table class="grid tt-imp-table"><thead><tr><th>课段</th><th>节次</th>${[1,2,3,4,5,6,7].map(w=>`<th>${"一二三四五六日"[w-1]}</th>`).join("")}</tr></thead><tbody>${dayRows}</tbody></table></div>
+      <div class="tt-imp-kit-head">🎒 逐科确认「要带的物品」（书包清单按它生成，留空表示这一科不用带东西）</div>
+      <div class="tt-imp-kit-grid">${kitRows}</div>`;
+  },
+  ttImportApply(){
+    if(!this.guard())return false;
+    const p=this._ttImport;
+    if(!p||!p.rows.length){ toast("请先点「解析预览」"); return false; }
+    const kitPatch={};
+    document.querySelectorAll("input[data-imp-kit]").forEach(el=>{
+      const k=el.dataset.impKit;
+      kitPatch[k]=String(el.value||"").split(/[\/、,，]/).map(s=>s.trim()).filter(Boolean);
+    });
+    const r=Store.applyImportedGrid(this.ttMode(),p.rows,kitPatch);
+    this._ttImport=null;
+    route(); toast(`已导入 ${r.rows} 个节次、${r.subjects} 个科目，书包清单已按新课表重算`);
+    return true;
+  },
+
   ttQuickConfig(){
     if(!this.guard())return;
     const f=this._ttFocus||{};
@@ -1613,7 +1681,9 @@ const Parent = {
           if(!k) return toast("请填科目名");
           const kit=Object.assign({},Store.db.settings.subjectKit||{});
           kit[k]=v.split(/[\/、,，]/).map(x=>x.trim()).filter(Boolean);
-          Store.db.settings.subjectKit=kit; Store.save(); closeModal(); route();
+          Store.db.settings.subjectKit=kit;
+          Store.db.settings.subjectRemoved=(Store.subjectRemoved()||[]).filter(x=>x!==k);
+          Store.save(); closeModal(); route();
           toast(`已配置「${k}」的要带物品`);
         } },
       { label:"取消", cls:"btn-outline", fn:()=>closeModal() }
@@ -1685,11 +1755,17 @@ const Parent = {
     });
     [Store.db.timetableGrid,Store.db.vacationTimetableGrid].forEach(g=>
       ((g||{}).rows||[]).forEach(r=>(r.cells||[]).forEach(x=>used.add(String(x==null?"":x).trim()))));
-    const keys=[...new Set([...Object.keys(kit),...[...used].filter(Boolean)])];
+    const removed=Store.subjectRemoved();
+    const keys=[...new Set([...Object.keys(kit),...[...used].filter(Boolean)])].filter(k=>!removed.includes(k));
     const rows=keys.map(k=>`<div class="kit-row">
-      <label>${esc(k)}</label>
+      <label title="${esc(k)}">${esc(k)}</label>
       <input data-kit="${esc(k)}" value="${esc((kit[k]||[]).join(" / "))}" placeholder="留空=这个科目不用带东西" ${this.isAdmin()?"":"disabled"}>
+      ${this.isAdmin()?`<button class="kit-del" title="删除科目「${esc(k)}」" onclick="Parent.delSubjectKit('${esc(k).replace(/'/g,"\\'")}')">×</button>`:""}
     </div>`).join("");
+    const removedHtml=removed.length?`<div class="kit-removed mt12">
+      <div class="small muted">🗑 已删除的科目（不会出现在课表填写建议和书包清单里，可随时恢复）：</div>
+      <div class="kit-chips">${removed.map(k=>`<button class="kit-chip" onclick="Parent.restoreSubjectKit('${esc(k).replace(/'/g,"\\'")}')" title="点击恢复">↩ ${esc(k)}</button>`).join("")}</div>
+    </div>`:"";
     const tm=Store.getTimetable(tomorrowStr());
     const preview=Store.kitForSubjects(tm.subjects||[]);
     return `<div class="card"><h3>🎒 科目 → 要带的物品</h3>
@@ -1700,6 +1776,7 @@ const Parent = {
       <div class="kit-preview mt12">📅 明天（${dateCn(tomorrowStr())}）：${(tm.subjects||[]).join(" / ")||"没有课"}
         <div class="small muted mt8">🎒 自动清单：${preview.length?esc(preview.join("、")):"（未配置这些科目的物品，或明天无课）"}</div></div>
       <div class="kit-grid mt12">${rows||'<div class="empty-tip" style="padding:12px">还没有科目，可在下方添加</div>'}</div>
+      ${removedHtml}
       ${this.isAdmin()?`<div class="flex mt12" style="flex-wrap:wrap;gap:8px">
         <button class="btn btn-primary" onclick="Parent.saveSubjectKit()">保存物品清单</button>
         <input id="kit-new-subject" placeholder="新增科目，如：书法" style="width:150px">
@@ -1724,7 +1801,31 @@ const Parent = {
     const key=String(k||"").trim(); if(!key) return toast("请填写科目名称");
     this.saveSubjectKit();
     Store.db.settings.subjectKit[key]=String(v||"").split(/[\/、,，]/).map(s=>s.trim()).filter(Boolean);
+    /* 手动加回同名科目 = 撤销之前的删除，否则仍被墓碑挡住 */
+    Store.db.settings.subjectRemoved=(Store.subjectRemoved()||[]).filter(x=>x!==key);
     Store.save(); route(); toast(`已添加科目「${key}」`);
+  },
+  /* 误创的科目可以彻底删掉；默认只从清单/建议里移除，可选把课表里填错的同名格子一并清空 */
+  delSubjectKit(k){
+    if(!this.guard())return;
+    const key=String(k||"").trim(); if(!key) return;
+    const used=Store.subjectCellCount(key);
+    modal("删除科目「"+esc(key)+"」", `
+      <div class="small muted">删除后不再出现在「课表填写建议」「科目清单」和书包清单里。已配的物品会一起移除，可随时在下方「已删除的科目」恢复。</div>
+      ${used?`<div class="kit-warn mt12">⚠ 课表里还有 <b>${used}</b> 个格子填着「${esc(key)}」。若这是手滑打错的名字，建议连格子一起清空；若只是不想给它配物品，请选「仅移除清单」。</div>`:""}
+      <div class="small muted mt12">恢复只会把科目加回清单（物品需重新填），不会自动把课表格子写回去。</div>`, [
+      { label:"取消", cls:"btn-ghost" },
+      { label:"仅移除清单", cls:"btn-outline", fn:()=>{
+          Store.removeSubject(key,false); route(); toast(`已删除科目「${key}」，可在下方恢复`);
+        } },
+      ...(used?[{ label:`连课表格子一起清空（${used}）`, cls:"btn-red", fn:()=>{
+          const r=Store.removeSubject(key,true); route(); toast(`已删除科目并清空 ${r.cells} 个格子`);
+        } }]:[])
+    ], true);
+  },
+  restoreSubjectKit(k){
+    if(!this.guard())return;
+    Store.restoreSubject(String(k||"").trim()); route(); toast(`已恢复科目「${k}」，请重新填要带的物品`);
   },
   setKitEnabled(v){ Store.db.settings.kitEnabled=v; Store.save(); toast(v?"已开启按课表自动生成清单":"已关闭，改用习惯里的手写清单"); },
   setKitMergeManual(v){ Store.db.settings.kitMergeManual=v; Store.save(); toast(v?"已合并手写检查项":"已改为纯课表清单"); },
